@@ -65,7 +65,7 @@ export default function LoginPage() {
 
               <div className="space-y-4">
                 <h1 className="text-4xl font-semibold leading-tight tracking-tight xl:text-5xl">
-                  Welcome back
+                  Welcome
                 </h1>
                 <p className="text-base leading-7 text-muted-foreground">
                   Sign in to manage tournaments, participants, and results through a cleaner, faster, and more professional experience.

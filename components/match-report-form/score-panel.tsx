@@ -36,60 +36,70 @@ export function ScorePanel({
   canSave,
 }: ScorePanelProps) {
   return (
-    <div className="bg-gradient-to-b from-slate-900 to-slate-950 flex flex-col items-center justify-center p-3 border-x border-primary/20">
-      <div className="bg-card/80 backdrop-blur-lg border border-primary/30 shadow-xl rounded-lg p-4 text-center w-full flex-1 flex flex-col justify-between overflow-y-auto scrollbar-thin scrollbar-thumb-primary scrollbar-track-slate-900">
-        <div>
-          <p className="text-muted-foreground text-xs mb-4 uppercase tracking-widest font-semibold">Marcador</p>
-          <div className="flex items-center justify-center gap-3 mb-6">
-            <div className="text-5xl font-bold sport-gradient-text tracking-tight">{teamAScore}</div>
+    <div className="flex flex-col items-center justify-center border-x border-border bg-gradient-to-b from-background to-muted/30 p-3">
+      <div className="flex w-full flex-1 flex-col justify-between overflow-y-auto rounded-lg border border-border bg-background shadow-sm scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+        <div className="p-4">
+          <p className="mb-4 text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            Score
+          </p>
+
+          <div className="mb-6 flex items-center justify-center gap-3">
+            <div className="text-5xl font-bold tracking-tight text-foreground">
+              {teamAScore}
+            </div>
             <div className="text-3xl font-bold text-muted-foreground">-</div>
-            <div className="text-5xl font-bold sport-gradient-text tracking-tight">{teamBScore}</div>
+            <div className="text-5xl font-bold tracking-tight text-foreground">
+              {teamBScore}
+            </div>
+          </div>
+
+          <div className="my-4">
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Comments
+            </label>
+            <textarea
+              value={comments}
+              onChange={(e) => onCommentsChange(e.target.value)}
+              placeholder="Incidents and notes"
+              className="h-20 w-full resize-none rounded-lg border border-input bg-background p-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
           </div>
         </div>
 
-        <div className="my-4">
-          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            Comentarios
-          </label>
-          <textarea
-            value={comments}
-            onChange={(e) => onCommentsChange(e.target.value)}
-            placeholder="Incidencias y notas"
-            className="w-full h-20 p-2 rounded-lg bg-background/40 border border-primary/30 text-foreground text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-          />
-        </div>
-
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 p-4 pt-0">
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button disabled={loading || !canSave} className="sport-gradient gap-2 h-8 text-xs w-full">
+              <Button disabled={loading || !canSave} className="h-8 w-full gap-2 text-xs">
                 <Save className="h-3 w-3" />
-                Guardar
+                Save
               </Button>
             </AlertDialogTrigger>
-            <AlertDialogContent className="bg-card/90 backdrop-blur-xl border border-primary/30 shadow-2xl">
+
+            <AlertDialogContent className="border-border bg-background shadow-lg">
               <AlertDialogHeader>
-                <AlertDialogTitle className="gradient-text">Confirmar guardado</AlertDialogTitle>
+                <AlertDialogTitle>Confirm save</AlertDialogTitle>
                 <AlertDialogDescription className="text-muted-foreground">
-                  Estás a punto de guardar el acta del partido con el marcador{" "}
-                  <span className="font-bold text-cyan-400">{teamAScore}</span> -{" "}
-                  <span className="font-bold text-orange-400">{teamBScore}</span>. Esta acción no se puede deshacer.
+                  You are about to save the match report with the score{" "}
+                  <span className="font-bold text-foreground">{teamAScore}</span> -{" "}
+                  <span className="font-bold text-foreground">{teamBScore}</span>. This action cannot be undone.
                 </AlertDialogDescription>
               </AlertDialogHeader>
+
               <AlertDialogFooter>
-                <AlertDialogCancel className="border-primary/30">Cancelar</AlertDialogCancel>
-                <AlertDialogAction onClick={onSave} className="sport-gradient gap-2">
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={onSave} className="gap-2">
                   <Check className="h-4 w-4" />
-                  Confirmar y guardar
+                  Confirm and save
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+
           <Button
             onClick={onDownloadPDF}
             variant="outline"
             disabled={!canSave}
-            className="gap-2 border-primary/30 hover:bg-primary/10 bg-transparent h-8 text-xs w-full"
+            className="h-8 w-full gap-2 bg-transparent text-xs"
           >
             <Download className="h-3 w-3" />
             PDF

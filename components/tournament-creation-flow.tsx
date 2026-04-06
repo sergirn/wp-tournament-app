@@ -1,8 +1,7 @@
 "use client"
 
-import type React from "react"
-
-import { useState } from "react"
+import { useMemo, useState } from "react"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Trophy, ArrowLeft, ArrowRight, Shuffle, Search, GripVertical } from "lucide-react"
+import { ArrowLeft, ArrowRight, Shuffle, Search, CheckCircle2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 
 type Step = "basic" | "teams" | "groups" | "complete"
@@ -26,30 +25,138 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
   const [step, setStep] = useState<Step>("basic")
   const [loading, setLoading] = useState(false)
 
-  // Paso 1: Información básica
   const [tournamentName, setTournamentName] = useState("")
   const [tournamentType, setTournamentType] = useState<"league" | "groups">("groups")
 
-  // Paso 2: Selección de equipos
   const [selectedTeams, setSelectedTeams] = useState<string[]>([])
   const [searchTeam, setSearchTeam] = useState("")
 
-  // Paso 3: Configuración de grupos
   const [numGroups, setNumGroups] = useState(2)
-  const [groups, setGroups] = useState<{ [key: string]: string[] }>({})
+  const [groups, setGroups] = useState<Record<string, string[]>>({})
 
-  const [draggedTeam, setDraggedTeam] = useState<{ teamId: string; sourceGroup: string } | null>(null)
+  const stepOrder: Step[] = ["basic", "teams", "groups"]
+  const currentStepIndex = stepOrder.indexOf(step)
+
+  const filteredTeams = useMemo(() => {
+    return teams.filter((team) => team.name.toLowerCase().includes(searchTeam.toLowerCase()))
+  }, [teams, searchTeam])
+
+  const selectedTeamObjects = useMemo(() => {
+    return teams.filter((team) => selectedTeams.includes(team.id))
+  }, [teams, selectedTeams])
+
+  const groupNames = useMemo(() => {
+    return Array.from({ length: numGroups }, (_, i) => `Group ${String.fromCharCode(65 + i)}`)
+  }, [numGroups])
+
+  const assignedTeamIds = useMemo(() => {
+    return Object.values(groups).flat()
+  }, [groups])
+
+  const unassignedTeams = useMemo(() => {
+    return selectedTeamObjects.filter((team) => !assignedTeamIds.includes(team.id))
+  }, [selectedTeamObjects, assignedTeamIds])
+
+  const basicStepValid = tournamentName.trim().length > 0
+  const teamsStepValid = selectedTeams.length >= 2
+
+  const groupsStepValid =
+    tournamentType === "league"
+      ? true
+      : selectedTeams.length > 0 &&
+        assignedTeamIds.length === selectedTeams.length &&
+        new Set(assignedTeamIds).size === assignedTeamIds.length &&
+        groupNames.every((groupName) => (groups[groupName] || []).length > 0)
+
+  const getStepLabel = (value: Step) => {
+    switch (value) {
+      case "basic":
+        return "Step 1: Basic information"
+      case "teams":
+        return "Step 2: Select teams"
+      case "groups":
+        return "Step 3: Organize groups"
+      case "complete":
+        return "Completed"
+    }
+  }
+
+  const toggleTeam = (teamId: string) => {
+    setSelectedTeams((prev) => {
+      if (prev.includes(teamId)) {
+        const next = prev.filter((id) => id !== teamId)
+
+        setGroups((currentGroups) => {
+          const updated: Record<string, string[]> = {}
+          for (const [groupName, teamIds] of Object.entries(currentGroups)) {
+            updated[groupName] = teamIds.filter((id) => id !== teamId)
+          }
+          return updated
+        })
+
+        return next
+      }
+
+      return [...prev, teamId]
+    })
+  }
+
+  const distributeTeamsRandomly = () => {
+    const shuffled = [...selectedTeams].sort(() => Math.random() - 0.5)
+    const newGroups: Record<string, string[]> = {}
+
+    groupNames.forEach((groupName) => {
+      newGroups[groupName] = []
+    })
+
+    shuffled.forEach((teamId, index) => {
+      const groupIndex = index % numGroups
+      const groupName = groupNames[groupIndex]
+      newGroups[groupName].push(teamId)
+    })
+
+    setGroups(newGroups)
+  }
+
+  const resetGroups = () => {
+    const cleared: Record<string, string[]> = {}
+    groupNames.forEach((groupName) => {
+      cleared[groupName] = []
+    })
+    setGroups(cleared)
+  }
+
+  const assignTeamToGroup = (teamId: string, targetGroup: string) => {
+    setGroups((prev) => {
+      const updated: Record<string, string[]> = {}
+
+      for (const name of groupNames) {
+        updated[name] = (prev[name] || []).filter((id) => id !== teamId)
+      }
+
+      updated[targetGroup] = [...(updated[targetGroup] || []), teamId]
+      return updated
+    })
+  }
+
+  const removeTeamFromGroup = (groupName: string, teamId: string) => {
+    setGroups((prev) => ({
+      ...prev,
+      [groupName]: (prev[groupName] || []).filter((id) => id !== teamId),
+    }))
+  }
 
   const handleCreateTournament = async () => {
+    if (!basicStepValid || !teamsStepValid || !groupsStepValid) return
+
     setLoading(true)
     const supabase = createClient()
 
     try {
-      // Crear torneo
       const { data: tournament, error: tournamentError } = await supabase
         .from("tournaments")
         .insert({
-          name: tournamentName,
+          name: tournamentName.trim(),
           type: tournamentType,
           status: "active",
         })
@@ -58,7 +165,6 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
 
       if (tournamentError) throw tournamentError
 
-      // Añadir equipos al torneo
       const tournamentTeamsData = selectedTeams.map((teamId) => ({
         tournament_id: tournament.id,
         team_id: teamId,
@@ -68,17 +174,20 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
 
       if (teamsError) throw teamsError
 
-      // Si es torneo por grupos, crear grupos
       if (tournamentType === "groups") {
-        const groupEntries = Object.entries(groups)
-        for (let i = 0; i < groupEntries.length; i++) {
-          const [groupName, teamIds] = groupEntries[i]
+        const validGroupEntries = groupNames
+          .map((groupName) => [groupName, groups[groupName] || []] as const)
+          .filter(([, teamIds]) => teamIds.length > 0)
+
+        for (let i = 0; i < validGroupEntries.length; i++) {
+          const [groupName, teamIds] = validGroupEntries[i]
+
           const { data: group, error: groupError } = await supabase
             .from("groups")
             .insert({
               tournament_id: tournament.id,
               name: groupName,
-              order_number: i + 1, // Usar el índice + 1 como order_number (1, 2, 3, etc.)
+              order_number: i + 1,
             })
             .select()
             .single()
@@ -97,428 +206,474 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
       }
 
       setStep("complete")
+
       setTimeout(() => {
         router.push(`/tournaments/${tournament.id}`)
-      }, 2000)
-    } catch (error) {
-      console.error("Error creating tournament:", error)
-      alert("Error al crear el torneo")
+      }, 1600)
+    } catch (error: any) {
+      console.error("Error creating tournament:")
+      console.error(JSON.stringify(error, null, 2))
+      console.error(error)
+      alert(error?.message || "Error creating tournament")
     } finally {
       setLoading(false)
     }
   }
 
-  const distributeTeamsRandomly = () => {
-    const shuffled = [...selectedTeams].sort(() => Math.random() - 0.5)
-    const newGroups: { [key: string]: string[] } = {}
-
-    for (let i = 0; i < numGroups; i++) {
-      newGroups[`Grupo ${String.fromCharCode(65 + i)}`] = []
-    }
-
-    shuffled.forEach((teamId, index) => {
-      const groupIndex = index % numGroups
-      const groupName = `Grupo ${String.fromCharCode(65 + groupIndex)}`
-      newGroups[groupName].push(teamId)
-    })
-
-    setGroups(newGroups)
-  }
-
-  const handleTouchStart = (teamId: string, sourceGroup: string) => {
-    setDraggedTeam({ teamId, sourceGroup })
-  }
-
-  const handleTouchEnd = () => {
-    setDraggedTeam(null)
-  }
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    e.preventDefault()
-  }
-
-  const handleTouchDrop = (targetGroup: string) => {
-    if (draggedTeam && draggedTeam.sourceGroup !== targetGroup) {
-      setGroups((prev) => ({
-        ...prev,
-        [draggedTeam.sourceGroup]: prev[draggedTeam.sourceGroup].filter((id) => id !== draggedTeam.teamId),
-        [targetGroup]: [...(prev[targetGroup] || []), draggedTeam.teamId],
-      }))
-    }
-    setDraggedTeam(null)
-  }
-
-  const filteredTeams = teams.filter((team) => team.name.toLowerCase().includes(searchTeam.toLowerCase()))
-
   return (
-    <div className="container mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-6 md:py-8 max-w-5xl">
-      <div className="mb-6 md:mb-8">
-        <Button variant="ghost" onClick={() => router.push("/")} className="mb-4 -ml-2">
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Volver
-        </Button>
-        <div className="flex items-center gap-3 mb-4">
-          <div className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-600 shrink-0">
-            <Trophy className="h-5 w-5 sm:h-7 sm:w-7 text-white" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold truncate">Crear Nuevo Torneo</h1>
-            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 truncate">
-              {step === "basic" && "Paso 1: Información básica"}
-              {step === "teams" && "Paso 2: Seleccionar equipos"}
-              {step === "groups" && "Paso 3: Organizar grupos"}
-              {step === "complete" && "Completado"}
-            </p>
-          </div>
-        </div>
-
-        {/* Barra de progreso */}
-        <div className="flex gap-2">
-          {["basic", "teams", "groups"].map((s, i) => (
-            <div
-              key={s}
-              className={`h-2 flex-1 rounded-full transition-all ${
-                s === step
-                  ? "bg-blue-600"
-                  : ["basic", "teams", "groups"].indexOf(step) > i
-                    ? "bg-blue-400"
-                    : "bg-slate-200 dark:bg-slate-700"
-              }`}
-            />
-          ))}
-        </div>
+    <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
+      <div className="absolute inset-0">
+        <div
+          className="absolute inset-0 bg-cover bg-center opacity-[0.04] dark:opacity-[0.1]"
+          style={{ backgroundImage: "url('/images/2.png')" }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-br from-background via-background/95 to-muted/40" />
+        <div className="absolute left-1/2 top-0 h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
+        <div className="absolute bottom-0 left-0 h-[260px] w-[260px] rounded-full bg-foreground/5 blur-3xl" />
+        <div className="absolute right-0 top-1/3 h-[220px] w-[220px] rounded-full bg-primary/10 blur-3xl" />
       </div>
 
-      {/* Paso 1: Información básica */}
-      {step === "basic" && (
-        <Card className="bg-card/80 backdrop-blur-lg border border-primary/30 shadow-xl">
-          <CardHeader>
-            <CardTitle className="text-xl md:text-2xl">Información del Torneo</CardTitle>
-            <CardDescription className="text-sm">Define el nombre y tipo de torneo</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="name" className="text-sm md:text-base">
-                Nombre del Torneo
-              </Label>
-              <Input
-                id="name"
-                placeholder="Ej: Liga Nacional 2025"
-                value={tournamentName}
-                onChange={(e) => setTournamentName(e.target.value)}
-                className="h-11 md:h-12 text-base"
-              />
+      <div className="relative z-10 mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
+        <div className="mb-8 space-y-5">
+          <Button
+            variant="ghost"
+            onClick={() => router.push("/")}
+            className="rounded-xl text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back
+          </Button>
+
+          <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
+            <div className="space-y-4">
+              <div className="inline-flex items-center rounded-full border border-border/60 bg-background/70 px-4 py-1.5 text-sm text-muted-foreground shadow-sm backdrop-blur-md">
+                Tournament creation
+              </div>
+
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-border/60 bg-background/70 shadow-lg backdrop-blur-sm">
+                  <Image
+                    src="/images/bwmf-logo.png"
+                    alt="Waterpolo Pro"
+                    width={36}
+                    height={36}
+                    className="object-contain dark:brightness-0 dark:invert"
+                    priority
+                  />
+                </div>
+
+                <div>
+                  <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Create tournament</h1>
+                  <p className="mt-1 text-sm text-muted-foreground sm:text-base">{getStepLabel(step)}</p>
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-3">
-              <Label className="text-sm md:text-base">Tipo de Torneo</Label>
-              <RadioGroup value={tournamentType} onValueChange={(v) => setTournamentType(v as any)}>
-                <div className="flex items-center space-x-2 p-3 md:p-4 border rounded-lg cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors touch-manipulation">
-                  <RadioGroupItem value="league" id="league" />
-                  <Label htmlFor="league" className="flex-1 cursor-pointer">
-                    <div className="font-semibold text-sm md:text-base">Liga (Todos contra todos)</div>
-                    <div className="text-xs md:text-sm text-slate-600 dark:text-slate-400">
-                      Cada equipo juega contra todos los demás
-                    </div>
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2 p-3 md:p-4 border rounded-lg cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors touch-manipulation">
-                  <RadioGroupItem value="groups" id="groups" />
-                  <Label htmlFor="groups" className="flex-1 cursor-pointer">
-                    <div className="font-semibold text-sm md:text-base">Torneo por Grupos</div>
-                    <div className="text-xs md:text-sm text-slate-600 dark:text-slate-400">
-                      Fase de grupos seguida de eliminatorias
-                    </div>
-                  </Label>
-                </div>
-              </RadioGroup>
-            </div>
+            <div className="rounded-3xl border border-border/60 bg-card/70 p-4 shadow-sm backdrop-blur-xl">
+              <div className="mb-3 flex items-center justify-between text-sm">
+                <span className="font-medium">Progress</span>
+                <span className="text-muted-foreground">
+                  {step === "complete" ? "100%" : `${Math.round(((currentStepIndex + 1) / 3) * 100)}%`}
+                </span>
+              </div>
 
-            <Button
-              className="w-full gradient-sport h-11 md:h-12 text-base touch-manipulation"
-              onClick={() => setStep("teams")}
-              disabled={!tournamentName}
-            >
-              Siguiente: Seleccionar Equipos
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+              <div className="flex gap-2">
+                {stepOrder.map((s, i) => {
+                  const isActive = s === step
+                  const isCompleted = currentStepIndex > i || step === "complete"
 
-      {/* Paso 2: Selección de equipos */}
-      {step === "teams" && (
-        <Card className="bg-card/80 backdrop-blur-lg border border-primary/30 shadow-xl">
-          <CardHeader>
-            <CardTitle className="text-xl md:text-2xl">Seleccionar Equipos Participantes</CardTitle>
-            <CardDescription className="text-sm">
-              {selectedTeams.length} de {teams.length} equipos seleccionados
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 md:space-y-6">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-              <Input
-                placeholder="Buscar equipos..."
-                value={searchTeam}
-                onChange={(e) => setSearchTeam(e.target.value)}
-                className="pl-10 h-11 md:h-12 bg-muted/50 border-primary/20 focus:border-primary/50 text-base"
-              />
-            </div>
-
-            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 max-h-[50vh] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-primary/40 scrollbar-track-transparent">
-              {filteredTeams.length === 0 ? (
-                <div className="col-span-full text-center py-8 text-muted-foreground text-sm">
-                  No se encontraron equipos
-                </div>
-              ) : (
-                filteredTeams.map((team) => (
-                  <div
-                    key={team.id}
-                    className="flex items-center space-x-3 p-3 md:p-4 border border-primary/20 rounded-lg hover:bg-primary/5 active:bg-primary/10 cursor-pointer transition-all touch-manipulation"
-                    onClick={() => {
-                      setSelectedTeams((prev) =>
-                        prev.includes(team.id) ? prev.filter((id) => id !== team.id) : [...prev, team.id],
-                      )
-                    }}
-                  >
-                    <Checkbox
-                      checked={selectedTeams.includes(team.id)}
-                      onCheckedChange={(checked) => {
-                        setSelectedTeams((prev) => (checked ? [...prev, team.id] : prev.filter((id) => id !== team.id)))
-                      }}
-                      className="shrink-0"
+                  return (
+                    <div
+                      key={s}
+                      className={`h-2 flex-1 rounded-full transition-all ${
+                        isActive ? "bg-primary" : isCompleted ? "bg-primary/50" : "bg-muted"
+                      }`}
                     />
-                    <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
-                      {team.logo_url ? (
-                        <img
-                          src={team.logo_url || "/placeholder.svg"}
-                          alt={team.name}
-                          className="h-8 w-8 md:h-10 md:w-10 rounded-full object-cover shrink-0"
-                        />
-                      ) : (
-                        <div className="flex h-8 w-8 md:h-10 md:w-10 items-center justify-center rounded-full gradient-sport text-white text-xs font-bold shrink-0">
-                          {team.name.substring(0, 2).toUpperCase()}
-                        </div>
-                      )}
-                      <span className="font-semibold text-sm md:text-base truncate">{team.name}</span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+                  )
+                })}
+              </div>
 
-            <div className="flex flex-col sm:flex-row gap-3">
-              <Button
-                variant="outline"
-                onClick={() => setStep("basic")}
-                className="flex-1 h-11 md:h-12 touch-manipulation"
-              >
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Atrás
-              </Button>
-              <Button
-                className="flex-1 h-11 md:h-12 touch-manipulation"
-                onClick={() => {
-                  if (tournamentType === "groups") {
-                    setStep("groups")
-                  } else {
-                    handleCreateTournament()
-                  }
-                }}
-                disabled={selectedTeams.length < 2}
-              >
-                {tournamentType === "groups" ? "Siguiente: Organizar Grupos" : "Crear Torneo"}
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
+              <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                <span>Basic</span>
+                <span className="text-center">Teams</span>
+                <span className="text-right">Groups</span>
+              </div>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        </div>
 
-      {/* Paso 3: Configuración de grupos */}
-      {step === "groups" && tournamentType === "groups" && (
-        <Card className="bg-card/80 backdrop-blur-lg border border-primary/30 shadow-xl">
-          <CardHeader>
-            <CardTitle className="text-xl md:text-2xl">Organizar Grupos</CardTitle>
-            <CardDescription className="text-sm">
-              Distribuye los {selectedTeams.length} equipos en {numGroups} grupo(s)
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 md:space-y-6">
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 md:gap-4">
-              <div className="flex-1">
-                <Label htmlFor="num-groups" className="text-sm md:text-base">
-                  Número de Grupos
-                </Label>
+        {step === "basic" && (
+          <Card className="overflow-hidden rounded-3xl border border-border/60 bg-card/80 shadow-xl backdrop-blur-2xl">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-2xl tracking-tight">Tournament details</CardTitle>
+              <CardDescription>Choose the tournament name and the competition format.</CardDescription>
+            </CardHeader>
+
+            <CardContent className="space-y-8">
+              <div className="space-y-2">
+                <Label htmlFor="name">Tournament name</Label>
                 <Input
-                  id="num-groups"
-                  type="number"
-                  min={2}
-                  max={8}
-                  value={numGroups.toString()}
-                  onChange={(e) => {
-                    const value = Number.parseInt(e.target.value) || 2
-                    setNumGroups(value)
-                    setGroups({})
-                  }}
-                  className="mt-2 h-11 md:h-12 text-base"
+                  id="name"
+                  placeholder="Example: National League 2026"
+                  value={tournamentName}
+                  onChange={(e) => setTournamentName(e.target.value)}
+                  className="h-12 rounded-xl border-border bg-background/70"
                 />
               </div>
-              <Button
-                variant="outline"
-                onClick={() => setGroups({})}
-                className="bg-transparent h-11 md:h-12 text-sm touch-manipulation"
-              >
-                Organizar Manualmente
-              </Button>
-              <Button
-                onClick={distributeTeamsRandomly}
-                className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 h-11 md:h-12 touch-manipulation"
-              >
-                <Shuffle className="h-4 w-4 mr-2" />
-                <span className="hidden sm:inline">Distribuir </span>Aleatoriamente
-              </Button>
-            </div>
 
-            <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
-              {Array.from({ length: numGroups }, (_, i) => {
-                const groupName = `Grupo ${String.fromCharCode(65 + i)}`
-                const groupTeams = groups[groupName] || []
+              <div className="space-y-3">
+                <Label>Tournament type</Label>
 
-                return (
-                  <div key={groupName} className="space-y-3 p-3 md:p-4 rounded-lg border border-primary/20 bg-muted/30">
-                    <div className="pb-3 border-b border-primary/20">
-                      <h3 className="text-base md:text-lg font-semibold">{groupName}</h3>
-                      <p className="text-xs md:text-sm text-muted-foreground">{groupTeams.length} equipos</p>
+                <RadioGroup
+                  value={tournamentType}
+                  onValueChange={(value) => setTournamentType(value as "league" | "groups")}
+                  className="grid gap-4 md:grid-cols-2"
+                >
+                  <label
+                    htmlFor="league"
+                    className={`cursor-pointer rounded-2xl border p-5 transition-all ${
+                      tournamentType === "league"
+                        ? "border-primary/30 bg-primary/5 shadow-sm"
+                        : "border-border/60 bg-background/40 hover:bg-muted/40"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <RadioGroupItem value="league" id="league" className="mt-1" />
+                      <div className="space-y-1">
+                        <div className="font-semibold">League</div>
+                        <p className="text-sm text-muted-foreground">
+                          Every team plays against all the others.
+                        </p>
+                      </div>
                     </div>
-                    <div className="space-y-2 min-h-40">
-                      {teams
-                        .filter((t) => groupTeams.includes(t.id))
-                        .map((team) => (
-                          <div
-                            key={team.id}
-                            className={`flex items-center justify-between gap-2 p-3 bg-primary/10 rounded-lg border border-primary/20 hover:bg-primary/20 active:bg-primary/30 transition-all cursor-move touch-manipulation ${
-                              draggedTeam?.teamId === team.id ? "opacity-50" : ""
-                            }`}
-                            draggable
-                            onDragStart={(e) => {
-                              e.dataTransfer.setData("teamId", team.id)
-                              e.dataTransfer.setData("sourceGroup", groupName)
-                            }}
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={(e) => {
-                              e.preventDefault()
-                              const teamId = e.dataTransfer.getData("teamId")
-                              const sourceGroup = e.dataTransfer.getData("sourceGroup")
+                  </label>
 
-                              if (sourceGroup !== groupName) {
-                                setGroups((prev) => ({
-                                  ...prev,
-                                  [sourceGroup]: prev[sourceGroup].filter((id) => id !== teamId),
-                                  [groupName]: [...(prev[groupName] || []), teamId],
-                                }))
-                              }
-                            }}
-                            onTouchStart={() => handleTouchStart(team.id, groupName)}
-                            onTouchEnd={handleTouchEnd}
-                            onTouchMove={handleTouchMove}
-                          >
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-                              {team.logo_url ? (
-                                <img
-                                  src={team.logo_url || "/placeholder.svg"}
-                                  alt={team.name}
-                                  className="h-7 w-7 md:h-8 md:w-8 rounded-full object-cover shrink-0"
-                                />
-                              ) : (
-                                <div className="flex h-7 w-7 md:h-8 md:w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-cyan-600 text-white text-xs font-bold shrink-0">
-                                  {team.name.substring(0, 2).toUpperCase()}
-                                </div>
-                              )}
-                              <span className="text-xs md:text-sm font-medium truncate">{team.name}</span>
+                  <label
+                    htmlFor="groups"
+                    className={`cursor-pointer rounded-2xl border p-5 transition-all ${
+                      tournamentType === "groups"
+                        ? "border-primary/30 bg-primary/5 shadow-sm"
+                        : "border-border/60 bg-background/40 hover:bg-muted/40"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <RadioGroupItem value="groups" id="groups" className="mt-1" />
+                      <div className="space-y-1">
+                        <div className="font-semibold">Group stage</div>
+                        <p className="text-sm text-muted-foreground">
+                          Teams are divided into groups before the next phase.
+                        </p>
+                      </div>
+                    </div>
+                  </label>
+                </RadioGroup>
+              </div>
+
+              <div className="flex justify-end">
+                <Button
+                  className="h-12 rounded-xl px-6"
+                  onClick={() => setStep("teams")}
+                  disabled={!basicStepValid}
+                >
+                  Continue
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {step === "teams" && (
+          <Card className="overflow-hidden rounded-3xl border border-border/60 bg-card/80 shadow-xl backdrop-blur-2xl">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-2xl tracking-tight">Select participating teams</CardTitle>
+              <CardDescription>
+                {selectedTeams.length} selected out of {teams.length} available teams.
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="space-y-6">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search teams..."
+                  value={searchTeam}
+                  onChange={(e) => setSearchTeam(e.target.value)}
+                  className="h-12 rounded-xl border-border bg-background/70 pl-10"
+                />
+              </div>
+
+              <div className="grid max-h-[28rem] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
+                {filteredTeams.length === 0 ? (
+                  <div className="col-span-2 rounded-2xl border border-dashed border-border/60 py-10 text-center text-muted-foreground">
+                    No teams found
+                  </div>
+                ) : (
+                  filteredTeams.map((team) => {
+                    const checked = selectedTeams.includes(team.id)
+
+                    return (
+                      <button
+                        key={team.id}
+                        type="button"
+                        onClick={() => toggleTeam(team.id)}
+                        className={`flex items-center gap-4 rounded-2xl border p-4 text-left transition-all ${
+                          checked
+                            ? "border-primary/30 bg-primary/5 shadow-sm"
+                            : "border-border/60 bg-background/50 hover:bg-muted/40"
+                        }`}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={() => toggleTeam(team.id)}
+                          className="pointer-events-none"
+                        />
+
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          {team.logo_url ? (
+                            <img
+                              src={team.logo_url || "/placeholder.svg"}
+                              alt={team.name}
+                              className="h-11 w-11 rounded-full border border-border/60 object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                              {team.name.substring(0, 2).toUpperCase()}
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setGroups((prev) => ({
-                                  ...prev,
-                                  [groupName]: prev[groupName].filter((id) => id !== team.id),
-                                }))
-                              }}
-                              className="h-8 w-8 p-0 shrink-0 hover:bg-destructive/10 hover:text-destructive touch-manipulation"
-                            >
-                              ✕
-                            </Button>
-                          </div>
-                        ))}
+                          )}
+
+                          <span className="truncate font-medium">{team.name}</span>
+                        </div>
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Button
+                  variant="outline"
+                  onClick={() => setStep("basic")}
+                  className="h-12 flex-1 rounded-xl"
+                >
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back
+                </Button>
+
+                <Button
+                  className="h-12 flex-1 rounded-xl"
+                  onClick={() => {
+                    if (tournamentType === "groups") {
+                      resetGroups()
+                      setStep("groups")
+                    } else {
+                      handleCreateTournament()
+                    }
+                  }}
+                  disabled={!teamsStepValid || loading}
+                >
+                  {tournamentType === "groups" ? "Continue to groups" : loading ? "Creating..." : "Create tournament"}
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {step === "groups" && tournamentType === "groups" && (
+          <Card className="overflow-hidden rounded-3xl border border-border/60 bg-card/80 shadow-xl backdrop-blur-2xl">
+            <CardHeader className="border-b border-border/60 pb-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <CardTitle className="text-2xl tracking-tight">Organize groups</CardTitle>
+                  <CardDescription className="mt-2 text-sm sm:text-base">
+                    Configure the groups first, then distribute teams below.
+                  </CardDescription>
+                </div>
+
+                <div className="inline-flex items-center rounded-full border border-border/60 bg-background/70 px-4 py-2 text-sm text-muted-foreground">
+                  {assignedTeamIds.length} / {selectedTeams.length} teams assigned
+                </div>
+              </div>
+            </CardHeader>
+
+            <CardContent className="space-y-8 p-6 sm:p-8">
+              <div className="grid gap-5 xl:grid-cols-1">
+                <div className="rounded-2xl border border-border/60 bg-background/60 p-6 shadow-sm">
+                  <div className="mb-5">
+                    <h3 className="text-lg font-semibold tracking-tight">Group configuration</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Define the number of groups and choose how teams should be distributed.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-[220px_1fr] md:items-end">
+                    <div className="space-y-2">
+                      <Label htmlFor="num-groups">Number of groups</Label>
+                      <Input
+                        id="num-groups"
+                        type="number"
+                        min={2}
+                        max={8}
+                        value={numGroups}
+                        onChange={(e) => {
+                          const value = Math.max(2, Math.min(8, Number.parseInt(e.target.value) || 2))
+                          setNumGroups(value)
+                          setGroups({})
+                        }}
+                        className="h-11 rounded-xl border-border bg-background"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                      <Button variant="outline" onClick={resetGroups} className="h-11 rounded-xl">
+                        Reset groups
+                      </Button>
+
+                      <Button onClick={distributeTeamsRandomly} className="h-11 rounded-xl">
+                        <Shuffle className="mr-2 h-4 w-4" />
+                        Random distribution
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-lg font-semibold tracking-tight">Groups</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Review the final distribution below. You can move teams between groups manually.
+                  </p>
+                </div>
+
+                <div className="grid gap-5 lg:grid-cols-2">
+                  {groupNames.map((groupName) => {
+                    const groupTeams = groups[groupName] || []
+
+                    return (
                       <div
-                        className="flex items-center justify-center min-h-16 border-2 border-dashed border-primary/30 rounded-lg text-muted-foreground text-xs md:text-sm transition-all hover:border-primary/50 hover:bg-primary/5 active:bg-primary/10 touch-manipulation"
+                        key={groupName}
+                        className="rounded-2xl border border-border/60 bg-background/60 p-5 shadow-sm"
                         onDragOver={(e) => e.preventDefault()}
                         onDrop={(e) => {
                           e.preventDefault()
                           const teamId = e.dataTransfer.getData("teamId")
-                          const sourceGroup = e.dataTransfer.getData("sourceGroup")
-
-                          if (sourceGroup !== groupName) {
-                            setGroups((prev) => ({
-                              ...prev,
-                              [sourceGroup]: prev[sourceGroup].filter((id) => id !== teamId),
-                              [groupName]: [...(prev[groupName] || []), teamId],
-                            }))
-                          }
+                          if (teamId) assignTeamToGroup(teamId, groupName)
                         }}
-                        onTouchEnd={() => handleTouchDrop(groupName)}
                       >
-                        {draggedTeam ? "Suelta aquí" : "Arrastra aquí"}
+                        <div className="mb-5 flex items-center justify-between border-b border-border/60 pb-4">
+                          <div>
+                            <h4 className="text-lg font-semibold tracking-tight">{groupName}</h4>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {groupTeams.length} {groupTeams.length === 1 ? "team" : "teams"}
+                            </p>
+                          </div>
+
+                          <div className="rounded-full border border-border/60 bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
+                            Pool
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          {groupTeams.length > 0 ? (
+                            groupTeams
+                              .map((teamId) => teams.find((team) => team.id === teamId))
+                              .filter(Boolean)
+                              .map((team) => (
+                                <div
+                                  key={team!.id}
+                                  draggable
+                                  onDragStart={(e) => {
+                                    e.dataTransfer.setData("teamId", team!.id)
+                                  }}
+                                  className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 transition-all hover:bg-muted/30"
+                                >
+                                  <div className="flex min-w-0 items-center gap-3">
+                                    {team!.logo_url ? (
+                                      <img
+                                        src={team!.logo_url || "/placeholder.svg"}
+                                        alt={team!.name}
+                                        className="h-10 w-10 rounded-full border border-border/60 object-cover"
+                                      />
+                                    ) : (
+                                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                                        {team!.name.substring(0, 2).toUpperCase()}
+                                      </div>
+                                    )}
+
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-medium">{team!.name}</p>
+                                      <p className="text-xs text-muted-foreground">Drag to move</p>
+                                    </div>
+                                  </div>
+
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => removeTeamFromGroup(groupName, team!.id)}
+                                    className="h-8 rounded-lg px-2 text-muted-foreground hover:text-foreground"
+                                  >
+                                    Remove
+                                  </Button>
+                                </div>
+                              ))
+                          ) : (
+                            <div className="rounded-xl border border-dashed border-border/70 bg-background/50 px-4 py-10 text-center text-sm text-muted-foreground">
+                              This group is empty
+                            </div>
+                          )}
+
+                          <div className="flex min-h-[56px] items-center justify-center rounded-xl border-2 border-dashed border-border/70 bg-background/40 text-sm text-muted-foreground">
+                            Drop teams here
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3">
-              <Button
-                variant="outline"
-                onClick={() => setStep("teams")}
-                className="flex-1 h-11 md:h-12 touch-manipulation"
-              >
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Atrás
-              </Button>
-              <Button
-                className="flex-1 gradient-sport h-11 md:h-12 touch-manipulation"
-                onClick={handleCreateTournament}
-                disabled={loading || Object.values(groups).every((g) => g.length === 0)}
-              >
-                {loading ? "Creando..." : "Crear Torneo"}
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Paso 4: Completado */}
-      {step === "complete" && (
-        <Card>
-          <CardContent className="py-12 md:py-16 text-center">
-            <div className="flex justify-center mb-4">
-              <div className="flex h-16 w-16 md:h-20 md:w-20 items-center justify-center rounded-full bg-green-100 dark:bg-green-900">
-                <Trophy className="h-8 w-8 md:h-10 md:w-10 text-green-600 dark:text-green-400" />
+                    )
+                  })}
+                </div>
               </div>
-            </div>
-            <h2 className="text-xl md:text-2xl font-bold mb-2">Torneo Creado Exitosamente</h2>
-            <p className="text-sm md:text-base text-slate-600 dark:text-slate-400 mb-6">
-              Redirigiendo al panel del torneo...
-            </p>
-          </CardContent>
-        </Card>
-      )}
+
+              <div className="flex flex-col gap-3 border-t border-border/60 pt-6 sm:flex-row">
+                <Button
+                  variant="outline"
+                  onClick={() => setStep("teams")}
+                  className="h-12 flex-1 rounded-xl"
+                >
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back
+                </Button>
+
+                <Button
+                  className="h-12 flex-1 rounded-xl"
+                  onClick={handleCreateTournament}
+                  disabled={loading || !groupsStepValid}
+                >
+                  {loading ? "Creating tournament..." : "Create tournament"}
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {step === "complete" && (
+          <Card className="overflow-hidden rounded-3xl border border-border/60 bg-card/80 shadow-xl backdrop-blur-2xl">
+            <CardContent className="py-20 text-center">
+              <div className="mb-6 flex justify-center">
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/10">
+                  <CheckCircle2 className="h-10 w-10 text-emerald-500" />
+                </div>
+              </div>
+
+              <h2 className="text-2xl font-semibold tracking-tight">Tournament created successfully</h2>
+              <p className="mt-3 text-muted-foreground">Redirecting to the tournament dashboard...</p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   )
 }

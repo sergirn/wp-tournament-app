@@ -1,11 +1,25 @@
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Trophy, Target, AlertCircle } from "lucide-react"
+import { Trophy, Target, AlertCircle, CalendarRange, Goal, Activity } from "lucide-react"
 
-export default async function StatsPage({ params }: { params: Promise<{ tournamentId: string }> }) {
+type PlayerStat = {
+  player_id: string
+  name: string
+  cap_number: number | null
+  team_name: string
+  goals?: number
+  exclusions?: number
+}
+
+export default async function StatsPage({
+  params,
+}: {
+  params: Promise<{ tournamentId: string }>
+}) {
   const { tournamentId } = await params
   const supabase = await createClient()
+
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -14,72 +28,87 @@ export default async function StatsPage({ params }: { params: Promise<{ tourname
     redirect("/auth/login")
   }
 
-  const { data: tournamentMatches } = await supabase.from("matches").select("id").eq("tournament_id", tournamentId)
+  const { data: tournamentMatches } = await supabase
+    .from("matches")
+    .select("id")
+    .eq("tournament_id", tournamentId)
 
   const matchIds = tournamentMatches?.map((m) => m.id) || []
 
-  // Máximos goleadores
   const { data: topScorers } = await supabase
     .from("match_events")
     .select(`
       player_id,
-      players!inner(name, cap_number, team_id, teams!inner(name))
+      players!inner(
+        name,
+        cap_number,
+        team_id,
+        teams!inner(name)
+      )
     `)
     .eq("event_type", "goal")
     .in("match_id", matchIds)
 
-  // Agrupar goleadores por jugador
-  const scorerStats = topScorers?.reduce((acc: any[], event: any) => {
-    const playerId = event.player_id
-    const existing = acc.find((s) => s.player_id === playerId)
+  const scorerStats =
+    topScorers?.reduce((acc: PlayerStat[], event: any) => {
+      const playerId = event.player_id
+      const existing = acc.find((s) => s.player_id === playerId)
 
-    if (existing) {
-      existing.goals += 1
-    } else {
-      acc.push({
-        player_id: playerId,
-        name: event.players.name,
-        cap_number: event.players.cap_number,
-        team_name: event.players.teams.name,
-        goals: 1,
-      })
-    }
-    return acc
-  }, [])
+      if (existing) {
+        existing.goals = (existing.goals || 0) + 1
+      } else {
+        acc.push({
+          player_id: playerId,
+          name: event.players.name,
+          cap_number: event.players.cap_number,
+          team_name: event.players.teams.name,
+          goals: 1,
+        })
+      }
 
-  const sortedScorers = scorerStats?.sort((a, b) => b.goals - a.goals).slice(0, 10) || []
+      return acc
+    }, []) || []
 
-  // Jugadores con más exclusiones
+  const sortedScorers = scorerStats.sort((a, b) => (b.goals || 0) - (a.goals || 0)).slice(0, 10)
+
   const { data: topExclusions } = await supabase
     .from("match_events")
     .select(`
       player_id,
-      players!inner(name, cap_number, team_id, teams!inner(name))
+      players!inner(
+        name,
+        cap_number,
+        team_id,
+        teams!inner(name)
+      )
     `)
     .eq("event_type", "exclusion")
     .in("match_id", matchIds)
 
-  const exclusionStats = topExclusions?.reduce((acc: any[], event: any) => {
-    const playerId = event.player_id
-    const existing = acc.find((s) => s.player_id === playerId)
+  const exclusionStats =
+    topExclusions?.reduce((acc: PlayerStat[], event: any) => {
+      const playerId = event.player_id
+      const existing = acc.find((s) => s.player_id === playerId)
 
-    if (existing) {
-      existing.exclusions += 1
-    } else {
-      acc.push({
-        player_id: playerId,
-        name: event.players.name,
-        cap_number: event.players.cap_number,
-        team_name: event.players.teams.name,
-        exclusions: 1,
-      })
-    }
-    return acc
-  }, [])
+      if (existing) {
+        existing.exclusions = (existing.exclusions || 0) + 1
+      } else {
+        acc.push({
+          player_id: playerId,
+          name: event.players.name,
+          cap_number: event.players.cap_number,
+          team_name: event.players.teams.name,
+          exclusions: 1,
+        })
+      }
 
-  const sortedExclusions = exclusionStats?.sort((a, b) => b.exclusions - a.exclusions).slice(0, 5) || []
+      return acc
+    }, []) || []
 
-  // Estadísticas generales del torneo
+  const sortedExclusions = exclusionStats
+    .sort((a, b) => (b.exclusions || 0) - (a.exclusions || 0))
+    .slice(0, 5)
+
   const { data: matches } = await supabase
     .from("matches")
     .select("team_a_score, team_b_score, status")
@@ -87,151 +116,211 @@ export default async function StatsPage({ params }: { params: Promise<{ tourname
 
   const totalMatches = matches?.length || 0
   const completedMatches = matches?.filter((m) => m.status === "completed").length || 0
-  const totalGoals = matches?.reduce((sum, m) => sum + (m.team_a_score || 0) + (m.team_b_score || 0), 0) || 0
-  const avgGoalsPerMatch = completedMatches > 0 ? (totalGoals / completedMatches).toFixed(1) : "0"
+  const totalGoals =
+    matches?.reduce((sum, m) => sum + (m.team_a_score || 0) + (m.team_b_score || 0), 0) || 0
+  const avgGoalsPerMatch = completedMatches > 0 ? (totalGoals / completedMatches).toFixed(1) : "0.0"
 
   return (
-    <div className="container mx-auto p-6">
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold gradient-text mb-2">Estadísticas</h1>
-        <p className="text-muted-foreground">Análisis y métricas del torneo</p>
+    <div className="container mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-6">
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+          Tournament Statistics
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground sm:text-base">
+          Overview, scoring leaders, and discipline metrics
+        </p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-4 mb-8">
-        <Card className="bg-card/80 backdrop-blur-lg border border-primary/30 shadow-xl">
-          <CardContent className="pt-6">
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground mb-1">Partidos Totales</p>
-              <p className="text-3xl font-bold gradient-text">{totalMatches}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card/80 backdrop-blur-lg border border-primary/30 shadow-xl">
-          <CardContent className="pt-6">
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground mb-1">Partidos Completados</p>
-              <p className="text-3xl font-bold text-cyan-400">{completedMatches}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card/80 backdrop-blur-lg border border-primary/30 shadow-xl">
-          <CardContent className="pt-6">
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground mb-1">Goles Totales</p>
-              <p className="text-3xl font-bold text-orange-400">{totalGoals}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card/80 backdrop-blur-lg border border-primary/30 shadow-xl">
-          <CardContent className="pt-6">
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground mb-1">Promedio Goles</p>
-              <p className="text-3xl font-bold text-violet-400">{avgGoalsPerMatch}</p>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Summary cards */}
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-2 sm:gap-4">
+        <StatCard
+          title="Total Matches"
+          value={totalMatches}
+          subtitle="All recorded matches"
+          icon={CalendarRange}
+        />
+        <StatCard
+          title="Total Goals"
+          value={totalGoals}
+          subtitle="Goals across the tournament"
+          icon={Goal}
+        />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Máximos Goleadores */}
-        <Card className="bg-card/80 backdrop-blur-lg border border-primary/30 shadow-xl">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Trophy className="h-5 w-5 text-cyan-400" />
-              Máximos Goleadores
+      {/* Rankings */}
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card className="border-border bg-card shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <Trophy className="h-4 w-4 text-foreground" />
+              Top Scorers
             </CardTitle>
           </CardHeader>
           <CardContent>
             {sortedScorers.length > 0 ? (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {sortedScorers.map((scorer, index) => (
-                  <div
+                  <RankingRow
                     key={scorer.player_id}
-                    className="flex items-center justify-between p-3 rounded-lg bg-accent/5 hover:bg-accent/10 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
-                          index === 0
-                            ? "bg-gradient-sport text-white"
-                            : index === 1
-                              ? "bg-cyan-500/20 text-cyan-400"
-                              : index === 2
-                                ? "bg-orange-500/20 text-orange-400"
-                                : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {index + 1}
-                      </div>
-                      <div>
-                        <p className="font-semibold">
-                          #{scorer.cap_number} {scorer.name}
-                        </p>
-                        <p className="text-sm text-muted-foreground">{scorer.team_name}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-cyan-400">{scorer.goals}</p>
-                      <p className="text-xs text-muted-foreground">goles</p>
-                    </div>
-                  </div>
+                    index={index}
+                    name={scorer.name}
+                    capNumber={scorer.cap_number}
+                    teamName={scorer.team_name}
+                    value={scorer.goals || 0}
+                    valueLabel="goals"
+                    highlight={index < 3}
+                  />
                 ))}
               </div>
             ) : (
-              <div className="text-center py-8">
-                <Target className="h-12 w-12 mx-auto text-muted-foreground/50 mb-2" />
-                <p className="text-muted-foreground">No hay goles registrados aún</p>
-              </div>
+              <EmptyState
+                icon={Target}
+                title="No goals recorded"
+                description="Scoring stats will appear once match events are registered."
+              />
             )}
           </CardContent>
         </Card>
 
-        {/* Jugadores con Más Exclusiones */}
-        <Card className="bg-card/80 backdrop-blur-lg border border-primary/30 shadow-xl">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-orange-400" />
-              Más Exclusiones
+        <Card className="border-border bg-card shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <AlertCircle className="h-4 w-4 text-foreground" />
+              Most Exclusions
             </CardTitle>
           </CardHeader>
           <CardContent>
             {sortedExclusions.length > 0 ? (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {sortedExclusions.map((player, index) => (
-                  <div
+                  <RankingRow
                     key={player.player_id}
-                    className="flex items-center justify-between p-3 rounded-lg bg-accent/5 hover:bg-accent/10 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm bg-muted text-muted-foreground">
-                        {index + 1}
-                      </div>
-                      <div>
-                        <p className="font-semibold">
-                          #{player.cap_number} {player.name}
-                        </p>
-                        <p className="text-sm text-muted-foreground">{player.team_name}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-orange-400">{player.exclusions}</p>
-                      <p className="text-xs text-muted-foreground">exclusiones</p>
-                    </div>
-                  </div>
+                    index={index}
+                    name={player.name}
+                    capNumber={player.cap_number}
+                    teamName={player.team_name}
+                    value={player.exclusions || 0}
+                    valueLabel="exclusions"
+                  />
                 ))}
               </div>
             ) : (
-              <div className="text-center py-8">
-                <AlertCircle className="h-12 w-12 mx-auto text-muted-foreground/50 mb-2" />
-                <p className="text-muted-foreground">No hay exclusiones registradas</p>
-              </div>
+              <EmptyState
+                icon={AlertCircle}
+                title="No exclusions recorded"
+                description="Disciplinary stats will appear once exclusion events are registered."
+              />
             )}
           </CardContent>
         </Card>
       </div>
+    </div>
+  )
+}
+
+function StatCard({
+  title,
+  value,
+  subtitle,
+  icon: Icon,
+}: {
+  title: string
+  value: string | number
+  subtitle: string
+  icon: React.ElementType
+}) {
+  return (
+    <Card className="border-border bg-card shadow-sm">
+      <CardContent className="p-4 sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {title}
+            </p>
+            <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+              {value}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+          </div>
+
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-muted/40">
+            <Icon className="h-4 w-4 text-muted-foreground" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function RankingRow({
+  index,
+  name,
+  capNumber,
+  teamName,
+  value,
+  valueLabel,
+  highlight = false,
+}: {
+  index: number
+  name: string
+  capNumber: number | null
+  teamName: string
+  value: number
+  valueLabel: string
+  highlight?: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-3 transition-colors hover:bg-muted/40 sm:px-4">
+      <div className="flex min-w-0 items-center gap-3">
+        <div
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+            highlight
+              ? "bg-foreground text-background"
+              : "bg-muted text-muted-foreground"
+          }`}
+        >
+          {index + 1}
+        </div>
+
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-foreground sm:text-[15px]">
+            {capNumber ? `#${capNumber} ` : ""}
+            {name}
+          </p>
+          <p className="truncate text-xs text-muted-foreground sm:text-sm">
+            {teamName}
+          </p>
+        </div>
+      </div>
+
+      <div className="ml-3 text-right">
+        <p className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+          {value}
+        </p>
+        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+          {valueLabel}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function EmptyState({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: React.ElementType
+  title: string
+  description: string
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 py-10 text-center">
+      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-border bg-background">
+        <Icon className="h-5 w-5 text-muted-foreground" />
+      </div>
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      <p className="mt-1 max-w-sm text-sm text-muted-foreground">{description}</p>
     </div>
   )
 }

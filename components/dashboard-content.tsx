@@ -1,20 +1,28 @@
 "use client"
 
+import { useEffect, useState } from "react"
+import Image from "next/image"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useTheme } from "next-themes"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Trophy, Plus, Users, Calendar, Trash2, LogOut, ChevronDown } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { ThemeToggle } from "@/components/theme-toggle"
+import {
+  Plus,
+  Users,
+  Calendar,
+  Trash2,
+  Sun,
+  Moon,
+  ShieldCheck,
+  ChevronDown,
+} from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useState } from "react"
 
 interface Tournament {
   id: string
@@ -31,8 +39,10 @@ interface Profile {
   role: string
 }
 
+type TournamentStatus = "draft" | "active" | "finished"
+
 export function DashboardContent({
-  tournaments: initialTournaments,
+  tournaments,
   profile,
   isAdmin,
 }: {
@@ -40,50 +50,75 @@ export function DashboardContent({
   profile: Profile | null
   isAdmin: boolean
 }) {
-  const [tournaments, setTournaments] = useState(initialTournaments)
-  const [isLoggingOut, setIsLoggingOut] = useState(false)
-  const router = useRouter()
+  const { resolvedTheme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  const [localTournaments, setLocalTournaments] = useState<Tournament[]>(tournaments)
+  const [statusLoadingId, setStatusLoadingId] = useState<string | null>(null)
+  const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null)
 
-  const handleLogout = async () => {
-    setIsLoggingOut(true)
-    try {
-      const response = await fetch("/api/auth/logout", { method: "POST" })
-      if (response.ok) {
-        router.replace("/auth/login")
-        router.refresh()
-      }
-    } catch (error) {
-      console.error("Logout error:", error)
-    } finally {
-      setIsLoggingOut(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  useEffect(() => {
+    setLocalTournaments(tournaments)
+  }, [tournaments])
+
+  const getNextStatus = (status: string): TournamentStatus => {
+    if (status === "draft") return "active"
+    if (status === "active") return "finished"
+    return "draft"
+  }
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case "active":
+        return "Active"
+      case "finished":
+        return "Finished"
+      default:
+        return "Draft"
     }
   }
 
-  const handleDeleteTournament = async (tournamentId: string, tournamentName: string) => {
-    if (!confirm(`¿Estás seguro de que deseas eliminar el torneo "${tournamentName}"?`)) {
-      return
-    }
+  const getTypeLabel = (type: string) => {
+    return type === "league" ? "League" : "Group tournament"
+  }
 
-    try {
-      const response = await fetch(`/api/tournaments/${tournamentId}`, {
-        method: "DELETE",
-      })
-
-      if (!response.ok) {
-        const data = await response.json()
-        alert(`Error: ${data.error}`)
-        return
-      }
-
-      window.location.reload()
-    } catch (error) {
-      console.error("Error deleting tournament:", error)
-      alert("Error al eliminar el torneo")
+  const getStatusClasses = (status: string) => {
+    switch (status) {
+      case "active":
+        return "border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+      case "finished":
+        return "border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-400"
+      default:
+        return "border-primary/20 bg-primary/10 text-primary"
     }
   }
 
-  const handleToggleStatus = async (tournamentId: string, currentStatus: string) => {
-    const newStatus = currentStatus === "active" ? "finished" : "active"
+  const getTopBarClasses = (status: string) => {
+    switch (status) {
+      case "active":
+        return "bg-emerald-500"
+      case "finished":
+        return "bg-red-500"
+      default:
+        return "bg-primary"
+    }
+  }
+
+  const handleStatusChange = async (tournamentId: string) => {
+    const currentTournament = localTournaments.find((t) => t.id === tournamentId)
+    if (!currentTournament) return
+
+    const nextStatus = getNextStatus(currentTournament.status)
+
+    setStatusLoadingId(tournamentId)
+
+    const previousTournaments = localTournaments
+    setLocalTournaments((prev) =>
+      prev.map((t) => (t.id === tournamentId ? { ...t, status: nextStatus } : t))
+    )
 
     try {
       const response = await fetch(`/api/tournaments/${tournamentId}/status`, {
@@ -91,240 +126,300 @@ export function DashboardContent({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({
+          status: nextStatus,
+        }),
       })
 
       if (!response.ok) {
-        const data = await response.json()
-        alert(`Error: ${data.error}`)
+        const data = await response.json().catch(() => null)
+        throw new Error(data?.error || "Failed to update tournament status")
+      }
+    } catch (error) {
+      console.error("Error updating tournament status:", error)
+      setLocalTournaments(previousTournaments)
+      alert(error instanceof Error ? error.message : "Error updating tournament status")
+    } finally {
+      setStatusLoadingId(null)
+    }
+  }
+
+  const handleDeleteTournament = async (tournamentId: string, tournamentName: string) => {
+    if (!confirm(`Are you sure you want to delete "${tournamentName}"?`)) {
+      return
+    }
+
+    setDeleteLoadingId(tournamentId)
+
+    try {
+      const response = await fetch(`/api/tournaments/${tournamentId}`, {
+        method: "DELETE",
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null)
+        alert(`Error: ${data?.error || "Failed to delete tournament"}`)
         return
       }
 
-      setTournaments((prev) => prev.map((t) => (t.id === tournamentId ? { ...t, status: newStatus } : t)))
+      setLocalTournaments((prev) => prev.filter((t) => t.id !== tournamentId))
     } catch (error) {
-      console.error("Error updating tournament status:", error)
-      alert("Error al actualizar el estado del torneo")
+      console.error("Error deleting tournament:", error)
+      alert("Error deleting tournament")
+    } finally {
+      setDeleteLoadingId(null)
     }
   }
 
   return (
-    <div
-      className="min-h-screen bg-background relative"
-      style={{
-        backgroundImage: "url('/images/2.png')",
-        backgroundAttachment: "fixed",
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-      }}
-    >
-      <div className="absolute inset-0 bg-background/80" />
+    <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
+      <div className="absolute inset-0">
+        <div
+          className="absolute inset-0 bg-cover bg-center opacity-[0.05] dark:opacity-[0.12]"
+          style={{
+            backgroundImage: "url('/images/2.png')",
+            backgroundAttachment: "fixed",
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-br from-background via-background/95 to-muted/40" />
+        <div className="absolute left-1/2 top-0 h-[440px] w-[440px] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
+        <div className="absolute bottom-0 left-0 h-[260px] w-[260px] rounded-full bg-foreground/5 blur-3xl" />
+        <div className="absolute right-0 top-1/3 h-[220px] w-[220px] rounded-full bg-primary/10 blur-3xl" />
+      </div>
+
       <div className="relative z-10">
-        <header className="sticky top-0 z-50 border-b border-border bg-card/60 backdrop-blur-xl">
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex h-20 items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-background/80 flex items-center justify-center shadow-lg border border-border p-1.5">
-                  <img src="/images/bwmf-logo.png" alt="Waterpolo Pro" className="w-full h-full object-contain" />
+        <header className="sticky top-0 z-50 border-b border-border/60 bg-background/70 backdrop-blur-2xl">
+          <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="flex min-h-20 items-center justify-between gap-4 py-4">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-15 items-center justify-center rounded-2xl">
+                  <Image
+                    src="/images/bwmf-logo.png"
+                    alt="Waterpolo Pro"
+                    width={74}
+                    height={74}
+                    className="object-contain dark:brightness-0 dark:invert"
+                    priority
+                  />
                 </div>
+
                 <div>
-                  <h1 className="text-2xl font-bold">Waterpolo Pro</h1>
-                  <p className="text-sm text-muted-foreground">Sistema de Gestión de Torneos</p>
+                  <h1 className="text-xl">Tournament management system</h1>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <ThemeToggle />
-                {profile?.email && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm" className="gap-2">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-primary-foreground text-xs font-bold">
-                          {profile.email[0].toUpperCase()}
-                        </div>
-                        <span className="text-sm max-w-32 truncate hidden sm:inline">{profile.email}</span>
-                        <ChevronDown className="h-4 w-4 opacity-50" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      <DropdownMenuItem disabled className="cursor-default">
-                        <div className="flex flex-col space-y-1">
-                          <p className="text-sm font-medium truncate">{profile.email}</p>
-                          {isAdmin && <p className="text-xs text-primary">Administrador</p>}
-                        </div>
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={handleLogout} disabled={isLoggingOut}>
-                        <LogOut className="h-4 w-4 mr-2" />
-                        {isLoggingOut ? "Cerrando..." : "Cerrar sesión"}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+
+              <div className="flex items-center gap-2 sm:gap-3">
+                {mounted && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+                    className="h-10 w-10 rounded-xl border-border/60 bg-background/70 backdrop-blur-sm"
+                    aria-label="Toggle theme"
+                  >
+                    {resolvedTheme === "dark" ? (
+                      <Sun className="h-4 w-4" />
+                    ) : (
+                      <Moon className="h-4 w-4" />
+                    )}
+                  </Button>
                 )}
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="h-10 rounded-xl border-border/60 bg-background/70 px-3 backdrop-blur-sm"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="hidden text-right sm:block">
+                          <p className="max-w-[220px] truncate text-sm">{profile?.email}</p>
+                        </div>
+                        {isAdmin && (
+                          <Badge className="hidden border-primary/20 bg-primary/10 text-primary hover:bg-primary/10 sm:inline-flex">
+                            <ShieldCheck className="mr-1 h-3.5 w-3.5" />
+                            Admin
+                          </Badge>
+                        )}
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    </Button>
+                  </DropdownMenuTrigger>
+
+                  <DropdownMenuContent align="end" className="w-64 rounded-xl">
+                    <div className="border-b border-border px-3 py-3">
+                      <p className="truncate text-sm font-medium">{profile?.email}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {isAdmin ? "Administrator" : "Standard user"}
+                      </p>
+                    </div>
+
+                    <DropdownMenuItem asChild className="cursor-pointer">
+                      <form action="/auth/sign-out" method="post" className="w-full">
+                        <button type="submit" className="w-full text-left">
+                          Log out
+                        </button>
+                      </form>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
           </div>
         </header>
 
-        <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h2 className="text-4xl font-bold mb-2">
-                <span className="bg-gradient-to-r from-primary via-accent to-secondary bg-clip-text text-transparent">
-                  Mis Torneos
-                </span>
-              </h2>
-              <p className="text-lg text-muted-foreground">
-                Selecciona un torneo para gestionar partidos y estadísticas
-              </p>
-            </div>
-            {isAdmin && (
-              <Link href="/tournaments/create">
-                <Button
-                  size="lg"
-                  className="gap-2 shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all"
-                >
-                  <Plus className="h-5 w-5" />
-                  Crear Torneo
-                </Button>
-              </Link>
-            )}
-          </div>
+        <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
+          <section className="mb-10 grid gap-6 lg:grid-cols-[1.2fr_0.8fr] lg:items-end">
+            <div className="space-y-4">
+              <div className="inline-flex items-center rounded-full border border-border/60 bg-background/70 px-4 py-1.5 text-sm text-muted-foreground shadow-sm backdrop-blur-md">
+                Main dashboard
+              </div>
 
-          {tournaments.length === 0 ? (
-            <Card className="border-dashed">
-              <CardContent className="flex flex-col items-center justify-center py-16">
-                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-muted mb-4">
-                  <Trophy className="h-10 w-10 text-muted-foreground" />
-                </div>
-                <h3 className="text-xl font-semibold mb-2">No hay torneos creados</h3>
-                <p className="text-muted-foreground mb-6 text-center max-w-md">
-                  {isAdmin
-                    ? "Crea tu primer torneo para comenzar a gestionar partidos y estadísticas"
-                    : "No hay torneos disponibles. Contacta con un administrador."}
+              <div>
+                <h2 className="text-4xl font-semibold tracking-tight sm:text-5xl">My tournaments</h2>
+                <p className="mt-3 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
+                  Manage competitions, teams, and results from a cleaner, more polished interface.
                 </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row lg:justify-end">
+              {isAdmin && (
+                <Link href="/tournaments/create">
+                  <Button
+                    size="lg"
+                    className="h-12 rounded-xl px-6 shadow-lg shadow-primary/15 transition-all hover:scale-[1.01]"
+                  >
+                    <Plus className="mr-2 h-5 w-5" />
+                    Create tournament
+                  </Button>
+                </Link>
+              )}
+            </div>
+          </section>
+
+          {localTournaments.length === 0 ? (
+            <Card className="overflow-hidden rounded-3xl border border-border/60 bg-card/80 shadow-xl backdrop-blur-xl">
+              <CardContent className="flex flex-col items-center justify-center px-6 py-20 text-center">
+                <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl border border-border/60 bg-muted/50">
+                  <Image
+                    src="/images/bwmf-logo.png"
+                    alt="Waterpolo Pro"
+                    width={52}
+                    height={52}
+                    className="object-contain dark:brightness-0 dark:invert"
+                  />
+                </div>
+
+                <h3 className="text-2xl font-semibold tracking-tight">No tournaments yet</h3>
+                <p className="mt-3 max-w-md text-muted-foreground">
+                  {isAdmin
+                    ? "Create your first tournament to start managing matches, teams, and statistics."
+                    : "There are no tournaments available right now. Please contact an administrator."}
+                </p>
+
                 {isAdmin && (
-                  <Link href="/tournaments/create">
-                    <Button size="lg" className="gap-2">
-                      <Plus className="h-5 w-5" />
-                      Crear Primer Torneo
+                  <Link href="/tournaments/create" className="mt-8">
+                    <Button size="lg" className="h-12 rounded-xl px-6">
+                      <Plus className="mr-2 h-5 w-5" />
+                      Create first tournament
                     </Button>
                   </Link>
                 )}
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {tournaments.map((tournament) => (
-                <div key={tournament.id} className="relative group">
-                  <Link href={`/tournaments/${tournament.id}`}>
-                    <Card className="h-full card-hover cursor-pointer overflow-hidden border-border bg-card">
-                      <div
-                        className={`h-2 ${
-                          tournament.status === "active"
-                            ? "gradient-primary"
-                            : tournament.status === "finished"
-                              ? "bg-red-500"
-                              : tournament.status === "draft"
-                                ? "gradient-secondary"
-                                : "bg-muted"
-                        }`}
-                      />
-                      <CardHeader>
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <CardTitle className="text-xl">{tournament.name}</CardTitle>
-                            <CardDescription className="mt-1">
-                              {tournament.type === "league" ? "Liga" : "Torneo por Grupos"}
+            <section className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+              {localTournaments.map((tournament) => (
+                <div key={tournament.id} className="group relative">
+                  <Link href={`/tournaments/${tournament.id}`} className="block h-full">
+                    <Card className="h-full overflow-hidden rounded-3xl border border-border/60 bg-card/80 shadow-lg backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl">
+                      <div className={`h-1.5 w-full ${getTopBarClasses(tournament.status)}`} />
+
+                      <CardHeader className="pb-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <CardTitle className="truncate text-xl font-semibold tracking-tight">
+                              {tournament.name}
+                            </CardTitle>
+                            <CardDescription className="mt-2 text-sm">
+                              {getTypeLabel(tournament.type)}
                             </CardDescription>
                           </div>
-                          {isAdmin ? (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                handleToggleStatus(tournament.id, tournament.status)
-                              }}
-                              className="focus:outline-none"
-                            >
-                              <Badge
-                                variant={
-                                  tournament.status === "active"
-                                    ? "default"
-                                    : tournament.status === "finished"
-                                      ? "destructive"
-                                      : tournament.status === "draft"
-                                        ? "outline"
-                                        : "secondary"
-                                }
-                                className="cursor-pointer hover:opacity-80 transition-opacity"
-                              >
-                                {tournament.status === "active"
-                                  ? "Activo"
-                                  : tournament.status === "finished"
-                                    ? "Finalizado"
-                                    : tournament.status === "draft"
-                                      ? "Borrador"
-                                      : "Desconocido"}
-                              </Badge>
-                            </button>
-                          ) : (
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              if (!isAdmin || statusLoadingId === tournament.id) return
+                              handleStatusChange(tournament.id)
+                            }}
+                            disabled={!isAdmin || statusLoadingId === tournament.id}
+                            className="rounded-full"
+                            title={isAdmin ? "Click to change status" : "Status"}
+                          >
                             <Badge
-                              variant={
-                                tournament.status === "active"
-                                  ? "default"
-                                  : tournament.status === "finished"
-                                    ? "destructive"
-                                    : tournament.status === "draft"
-                                      ? "outline"
-                                      : "secondary"
-                              }
+                              className={`${getStatusClasses(tournament.status)} cursor-pointer transition-opacity hover:opacity-80`}
                             >
-                              {tournament.status === "active"
-                                ? "Activo"
-                                : tournament.status === "finished"
-                                  ? "Finalizado"
-                                  : tournament.status === "draft"
-                                    ? "Borrador"
-                                    : "Desconocido"}
+                              {statusLoadingId === tournament.id
+                                ? "Updating..."
+                                : getStatusLabel(tournament.status)}
                             </Badge>
-                          )}
+                          </button>
                         </div>
                       </CardHeader>
-                      <CardContent>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div className="flex items-center gap-2">
-                            <Users className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-muted-foreground">
-                              {tournament.tournament_teams[0]?.count || 0} equipos
+
+                      <CardContent className="pt-0">
+                        <div className="grid gap-3">
+                          <div className="flex items-center justify-between rounded-2xl border border-border/50 bg-background/50 px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+                                <Users className="h-4 w-4 text-primary" />
+                              </div>
+                              <span className="text-sm text-muted-foreground">Teams</span>
+                            </div>
+                            <span className="text-sm font-medium text-foreground">
+                              {tournament.tournament_teams[0]?.count || 0}
                             </span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Calendar className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-muted-foreground">
-                              {new Date(tournament.created_at).toLocaleDateString("es-ES")}
+
+                          <div className="flex items-center justify-between rounded-2xl border border-border/50 bg-background/50 px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+                                <Calendar className="h-4 w-4 text-primary" />
+                              </div>
+                              <span className="text-sm text-muted-foreground">Created</span>
+                            </div>
+                            <span className="text-sm font-medium text-foreground">
+                              {new Date(tournament.created_at).toLocaleDateString("en-GB")}
                             </span>
                           </div>
                         </div>
                       </CardContent>
                     </Card>
                   </Link>
+
                   {isAdmin && (
                     <Button
                       type="button"
                       variant="outline"
-                      size="sm"
+                      size="icon"
                       onClick={(e) => {
                         e.preventDefault()
+                        e.stopPropagation()
                         handleDeleteTournament(tournament.id, tournament.name)
                       }}
-                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive hover:border-destructive/20 bg-background/80 backdrop-blur-sm"
+                      disabled={deleteLoadingId === tournament.id}
+                      className="absolute right-4 top-4 h-9 w-9 rounded-xl border-border/60 bg-background/80 opacity-0 backdrop-blur-sm transition-all group-hover:opacity-100 hover:border-destructive/20 hover:bg-destructive/10 hover:text-destructive disabled:opacity-100"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   )}
                 </div>
               ))}
-            </div>
+            </section>
           )}
         </main>
       </div>

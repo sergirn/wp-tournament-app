@@ -2,10 +2,12 @@
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { PlayerRow } from "./player-row"
+import { TeamLogo } from "@/components/team-logo"
 
 interface Team {
   id: string
   name: string
+  logo_url?: string | null
 }
 
 interface Player {
@@ -23,32 +25,36 @@ interface TeamPanelProps {
   onTeamChange: (teamId: string) => void
   players: Player[]
   onUpdateStat: (team: "A" | "B", playerId: string, stat: "goals" | "exclusions", delta: number) => void
+  excludedTeamId?: string
 }
 
-export function TeamPanel({ team, teams, selectedTeamId, onTeamChange, players, onUpdateStat }: TeamPanelProps) {
+export function TeamPanel({ team, teams, selectedTeamId, onTeamChange, players, onUpdateStat, excludedTeamId }: TeamPanelProps) {
   const selectedTeam = teams.find((t) => t.id === selectedTeamId)
   const teamName = selectedTeam?.name || `Equipo ${team}`
 
   return (
-    <div className="bg-card/80 backdrop-blur-lg border-r border-primary/30 text-foreground overflow-hidden flex flex-col">
-      <div className="p-2 border-b border-primary/20 shrink-0 backdrop-blur-sm bg-card/60">
+    <section className={`flex min-h-[360px] flex-col overflow-hidden bg-card text-foreground md:min-h-0 ${team === "A" ? "md:border-r" : "md:border-l"}`}>
+      <div className="shrink-0 border-b bg-muted/15 p-3">
         <Select value={selectedTeamId} onValueChange={onTeamChange}>
-          <SelectTrigger className="w-full bg-background/70 border-primary/30 h-9 mb-2">
+          <SelectTrigger className="mb-3 h-10 w-full bg-background">
             <SelectValue placeholder={`Seleccionar Equipo ${team}`} />
           </SelectTrigger>
           <SelectContent>
-            {teams.map((team) => (
+            {teams.filter((item) => item.id !== excludedTeamId || item.id === selectedTeamId).map((team) => (
               <SelectItem key={team.id} value={team.id}>
                 {team.name}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <h2 className="text-lg font-bold text-center tracking-tight gradient-text">{teamName}</h2>
+        <div className="flex items-center justify-center gap-3">
+          <TeamLogo name={teamName} logoUrl={selectedTeam?.logo_url} className="h-10 w-10 bg-background" />
+          <div className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Equipo {team}</p><h2 className="truncate text-base font-bold text-foreground">{teamName}</h2></div>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/40 scrollbar-track-transparent">
         <table className="w-full">
-          <thead className="bg-card/60 backdrop-blur-sm sticky top-0 z-10">
+          <thead className="sticky top-0 z-10 bg-card/95 backdrop-blur">
             <tr className="border-b border-primary/20">
               <th className="text-left p-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Gorro
@@ -71,6 +77,6 @@ export function TeamPanel({ team, teams, selectedTeamId, onTeamChange, players, 
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   )
 }

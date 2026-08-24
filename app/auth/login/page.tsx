@@ -65,7 +65,7 @@ export default function LoginPage() {
 
               <div className="space-y-4">
                 <h1 className="text-4xl font-semibold leading-tight tracking-tight xl:text-5xl">
-                  Welcome
+                  Welcome back
                 </h1>
                 <p className="text-base leading-7 text-muted-foreground">
                   Sign in to manage tournaments, participants, and results through a cleaner, faster, and more professional experience.
@@ -130,16 +130,10 @@ export default function LoginPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between">
+                      <div>
                         <Label htmlFor="password" className="text-sm font-medium text-foreground">
                           Password
                         </Label>
-                        <Link
-                          href="/auth/forgot-password"
-                          className="text-xs text-muted-foreground transition hover:text-foreground"
-                        >
-                          Forgot password?
-                        </Link>
                       </div>
 
                       <Input

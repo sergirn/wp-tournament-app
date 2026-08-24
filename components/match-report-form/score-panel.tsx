@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Save, Download, Check } from "lucide-react"
+import { Save, Download, Check, MessageSquareText } from "lucide-react"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,60 +36,61 @@ export function ScorePanel({
   canSave,
 }: ScorePanelProps) {
   return (
-    <div className="flex flex-col items-center justify-center border-x border-border bg-gradient-to-b from-background to-muted/30 p-3">
-      <div className="flex w-full flex-1 flex-col justify-between overflow-y-auto rounded-lg border border-border bg-background shadow-sm scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
-        <div className="p-4">
-          <p className="mb-4 text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Score
+    <aside className="flex min-h-[300px] flex-col border-y bg-muted/10 p-3 md:min-h-0 md:border-y-0">
+      <div className="flex h-full w-full flex-col overflow-y-auto rounded-xl border bg-background shadow-sm">
+        <div className="p-4 xl:p-5">
+          <p className="mb-3 text-center text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            Marcador del partido
           </p>
 
-          <div className="mb-6 flex items-center justify-center gap-3">
-            <div className="text-5xl font-bold tracking-tight text-foreground">
+          <div className="flex items-center justify-center gap-3 rounded-xl bg-muted/25 px-3 py-5">
+            <div className="min-w-12 text-center text-5xl font-black tracking-tight text-foreground tabular-nums xl:text-6xl">
               {teamAScore}
             </div>
-            <div className="text-3xl font-bold text-muted-foreground">-</div>
-            <div className="text-5xl font-bold tracking-tight text-foreground">
+            <div className="text-2xl font-medium text-muted-foreground">—</div>
+            <div className="min-w-12 text-center text-5xl font-black tracking-tight text-foreground tabular-nums xl:text-6xl">
               {teamBScore}
             </div>
           </div>
+          <p className="mt-2 text-center text-[11px] text-muted-foreground">Se calcula automáticamente con los goles</p>
 
-          <div className="my-4">
-            <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Comments
+          <div className="mt-5">
+            <label className="mb-2 flex items-center gap-2 text-xs font-semibold text-foreground">
+              <MessageSquareText className="h-3.5 w-3.5 text-muted-foreground" />Comentarios del acta
             </label>
             <textarea
               value={comments}
               onChange={(e) => onCommentsChange(e.target.value)}
-              placeholder="Incidents and notes"
-              className="h-20 w-full resize-none rounded-lg border border-input bg-background p-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="Incidencias, observaciones o notas…"
+              className="h-24 w-full resize-none rounded-lg border border-input bg-background p-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
         </div>
 
-        <div className="flex flex-col gap-2 p-4 pt-0">
+        <div className="mt-auto flex flex-col gap-2 border-t bg-muted/10 p-4">
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button disabled={loading || !canSave} className="h-8 w-full gap-2 text-xs">
-                <Save className="h-3 w-3" />
-                Save
+              <Button disabled={loading || !canSave} className="h-11 w-full gap-2 font-semibold">
+                <Save className="h-4 w-4" />
+                {loading ? "Guardando…" : "Guardar acta"}
               </Button>
             </AlertDialogTrigger>
 
             <AlertDialogContent className="border-border bg-background shadow-lg">
               <AlertDialogHeader>
-                <AlertDialogTitle>Confirm save</AlertDialogTitle>
+                <AlertDialogTitle>Confirmar acta</AlertDialogTitle>
                 <AlertDialogDescription className="text-muted-foreground">
-                  You are about to save the match report with the score{" "}
+                  Vas a guardar definitivamente el acta con el resultado{" "}
                   <span className="font-bold text-foreground">{teamAScore}</span> -{" "}
-                  <span className="font-bold text-foreground">{teamBScore}</span>. This action cannot be undone.
+                  <span className="font-bold text-foreground">{teamBScore}</span>. Comprueba los goles y exclusiones antes de continuar.
                 </AlertDialogDescription>
               </AlertDialogHeader>
 
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
                 <AlertDialogAction onClick={onSave} className="gap-2">
                   <Check className="h-4 w-4" />
-                  Confirm and save
+                  Confirmar y guardar
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -99,13 +100,13 @@ export function ScorePanel({
             onClick={onDownloadPDF}
             variant="outline"
             disabled={!canSave}
-            className="h-8 w-full gap-2 bg-transparent text-xs"
+            className="h-10 w-full gap-2 bg-transparent text-sm"
           >
             <Download className="h-3 w-3" />
             PDF
           </Button>
         </div>
       </div>
-    </div>
+    </aside>
   )
 }

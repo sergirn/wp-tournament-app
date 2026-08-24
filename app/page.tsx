@@ -8,7 +8,8 @@ async function getTournaments() {
     .from("tournaments")
     .select(`
       *,
-      tournament_teams(count)
+      tournament_teams(count),
+      matches(count)
     `)
     .order("created_at", { ascending: false })
   return data || []
@@ -36,9 +37,16 @@ export default async function DashboardPage() {
     redirect("/auth/login")
   }
 
-  const [tournaments, profile] = await Promise.all([getTournaments(), getUserProfile()])
+  const [tournaments, profile, recentResult, teamsResult, incidentsResult, matchesResult] = await Promise.all([
+    getTournaments(),
+    getUserProfile(),
+    supabase.from("matches").select("id, tournament_id, team_a_score, team_b_score, updated_at, team_a:teams!matches_team_a_id_fkey(name), team_b:teams!matches_team_b_id_fkey(name), tournament:tournaments(name)").eq("status", "finished").order("updated_at", { ascending: false }).limit(5),
+    supabase.from("teams").select("id", { count: "exact", head: true }),
+    supabase.from("matches").select("id", { count: "exact", head: true }).not("comments", "is", null),
+    supabase.from("matches").select("id", { count: "exact", head: true }).eq("status", "finished"),
+  ])
 
   const isAdmin = profile?.role === "admin"
 
-  return <DashboardContent tournaments={tournaments} profile={profile} isAdmin={isAdmin} />
+  return <DashboardContent tournaments={tournaments} profile={profile} isAdmin={isAdmin} recentActivity={(recentResult.data || []) as unknown as Parameters<typeof DashboardContent>[0]["recentActivity"]} totals={{ teams: teamsResult.count || 0, incidents: incidentsResult.count || 0, matches: matchesResult.count || 0 }} />
 }

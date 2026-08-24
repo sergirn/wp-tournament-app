@@ -1,10 +1,10 @@
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent } from "@/components/ui/card"
 import { Trophy, Users, Calendar, TrendingUp, Clock, Award, ChevronRight } from "lucide-react"
-import Image from "next/image"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { TeamLogo } from "@/components/team-logo"
 
 export default async function TournamentHomePage({
   params,
@@ -27,14 +27,14 @@ export default async function TournamentHomePage({
     supabase.from("matches").select("*").eq("tournament_id", tournamentId).eq("status", "finished"),
     supabase
       .from("matches")
-      .select("*, home_team:teams!matches_home_team_id_fkey(*), away_team:teams!matches_away_team_id_fkey(*)")
+      .select("*, team_a:teams!matches_team_a_id_fkey(*), team_b:teams!matches_team_b_id_fkey(*)")
       .eq("tournament_id", tournamentId)
       .eq("status", "scheduled")
       .order("match_date", { ascending: true })
       .limit(3),
     supabase
       .from("matches")
-      .select("*, home_team:teams!matches_home_team_id_fkey(*), away_team:teams!matches_away_team_id_fkey(*)")
+      .select("*, team_a:teams!matches_team_a_id_fkey(*), team_b:teams!matches_team_b_id_fkey(*)")
       .eq("tournament_id", tournamentId)
       .eq("status", "finished")
       .order("match_date", { ascending: false })
@@ -61,7 +61,7 @@ export default async function TournamentHomePage({
         <div className="container relative mx-auto px-4 py-16 md:py-24">
           <div className="max-w-4xl">
             <Badge variant="secondary" className="mb-4 text-xs uppercase tracking-wider font-semibold">
-              Torneo Activo
+              {tournament?.status === "active" ? "Torneo activo" : tournament?.status === "finished" ? "Torneo finalizado" : "Torneo en borrador"}
             </Badge>
             <h1 className="text-4xl md:text-6xl font-black tracking-tighter mb-4 text-balance">
               {tournament?.name || "Torneo de Waterpolo"}
@@ -101,8 +101,8 @@ export default async function TournamentHomePage({
                   <Calendar className="h-4 w-4 opacity-70" />
                   <span className="text-xs uppercase tracking-wider opacity-70 font-semibold">Estado</span>
                 </div>
-                <div className={`text-2xl font-black ${tournament?.status === 'finished' ? 'text-red-400' : ''}`}>
-                  {tournament?.status === 'active' ? 'Activo' : tournament?.status === 'finished' ? 'Finalizado' : 'Borrador'}
+                <div className="text-2xl font-black">
+                  {tournament?.status === "active" ? "Activo" : tournament?.status === "finished" ? "Finalizado" : "Borrador"}
                 </div>
               </div>
             </div>
@@ -166,21 +166,8 @@ export default async function TournamentHomePage({
                         {/* Home Team */}
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3 flex-1">
-                            {match.home_team?.logo_url ? (
-                              <div className="relative h-10 w-10 rounded-full overflow-hidden border-2 border-border">
-                                <Image
-                                  src={match.home_team.logo_url || "/placeholder.svg"}
-                                  alt={match.home_team.name}
-                                  fill
-                                  className="object-cover"
-                                />
-                              </div>
-                            ) : (
-                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-primary-foreground font-bold text-sm">
-                                {match.home_team?.name.substring(0, 2).toUpperCase()}
-                              </div>
-                            )}
-                            <span className="font-bold text-sm">{match.home_team?.name}</span>
+                            <TeamLogo name={match.team_a?.name} logoUrl={match.team_a?.logo_url} className="h-10 w-10 border-2" />
+                            <span className="font-bold text-sm">{match.team_a?.name}</span>
                           </div>
                         </div>
 
@@ -191,21 +178,8 @@ export default async function TournamentHomePage({
                         {/* Away Team */}
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3 flex-1">
-                            {match.away_team?.logo_url ? (
-                              <div className="relative h-10 w-10 rounded-full overflow-hidden border-2 border-border">
-                                <Image
-                                  src={match.away_team.logo_url || "/placeholder.svg"}
-                                  alt={match.away_team.name}
-                                  fill
-                                  className="object-cover"
-                                />
-                              </div>
-                            ) : (
-                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-accent to-primary text-accent-foreground font-bold text-sm">
-                                {match.away_team?.name.substring(0, 2).toUpperCase()}
-                              </div>
-                            )}
-                            <span className="font-bold text-sm">{match.away_team?.name}</span>
+                            <TeamLogo name={match.team_b?.name} logoUrl={match.team_b?.logo_url} className="h-10 w-10 border-2" />
+                            <span className="font-bold text-sm">{match.team_b?.name}</span>
                           </div>
                         </div>
                       </div>
@@ -252,23 +226,10 @@ export default async function TournamentHomePage({
                         {/* Home Team */}
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3 flex-1">
-                            {match.home_team?.logo_url ? (
-                              <div className="relative h-9 w-9 rounded-full overflow-hidden border-2 border-border">
-                                <Image
-                                  src={match.home_team.logo_url || "/placeholder.svg"}
-                                  alt={match.home_team.name}
-                                  fill
-                                  className="object-cover"
-                                />
-                              </div>
-                            ) : (
-                              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-primary-foreground font-bold text-xs">
-                                {match.home_team?.name.substring(0, 2).toUpperCase()}
-                              </div>
-                            )}
-                            <span className="font-bold text-sm flex-1">{match.home_team?.name}</span>
+                            <TeamLogo name={match.team_a?.name} logoUrl={match.team_a?.logo_url} className="h-9 w-9 border-2" />
+                            <span className="font-bold text-sm flex-1">{match.team_a?.name}</span>
                           </div>
-                          <span className="text-2xl font-black tabular-nums">{match.home_score ?? 0}</span>
+                          <span className="text-2xl font-black tabular-nums">{match.team_a_score ?? 0}</span>
                         </div>
 
                         <div className="border-t" />
@@ -276,23 +237,10 @@ export default async function TournamentHomePage({
                         {/* Away Team */}
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3 flex-1">
-                            {match.away_team?.logo_url ? (
-                              <div className="relative h-9 w-9 rounded-full overflow-hidden border-2 border-border">
-                                <Image
-                                  src={match.away_team.logo_url || "/placeholder.svg"}
-                                  alt={match.away_team.name}
-                                  fill
-                                  className="object-cover"
-                                />
-                              </div>
-                            ) : (
-                              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-accent to-primary text-accent-foreground font-bold text-xs">
-                                {match.away_team?.name.substring(0, 2).toUpperCase()}
-                              </div>
-                            )}
-                            <span className="font-bold text-sm flex-1">{match.away_team?.name}</span>
+                            <TeamLogo name={match.team_b?.name} logoUrl={match.team_b?.logo_url} className="h-9 w-9 border-2" />
+                            <span className="font-bold text-sm flex-1">{match.team_b?.name}</span>
                           </div>
-                          <span className="text-2xl font-black tabular-nums">{match.away_score ?? 0}</span>
+                          <span className="text-2xl font-black tabular-nums">{match.team_b_score ?? 0}</span>
                         </div>
                       </div>
 
@@ -333,20 +281,7 @@ export default async function TournamentHomePage({
               >
                 <CardContent className="p-6">
                   <div className="flex flex-col items-center text-center gap-4">
-                    {item.team.logo_url ? (
-                      <div className="relative h-20 w-20 rounded-full overflow-hidden border-4 border-border group-hover:border-primary transition-colors">
-                        <Image
-                          src={item.team.logo_url || "/placeholder.svg"}
-                          alt={item.team.name}
-                          fill
-                          className="object-cover"
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-primary via-secondary to-accent text-primary-foreground font-black text-2xl shadow-lg group-hover:scale-110 transition-transform">
-                        {item.team.name.substring(0, 2).toUpperCase()}
-                      </div>
-                    )}
+                    <TeamLogo name={item.team.name} logoUrl={item.team.logo_url} className="h-20 w-20 border-4 transition-transform group-hover:scale-110 [&_[data-slot=avatar-fallback]]:text-2xl" />
                     <div>
                       <h3 className="font-bold text-lg leading-tight">{item.team.name}</h3>
                     </div>

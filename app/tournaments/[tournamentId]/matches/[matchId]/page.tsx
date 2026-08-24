@@ -1,288 +1,35 @@
-import { createClient } from "@/lib/supabase/server"
-import { redirect } from "next/navigation"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import { ArrowLeft, CalendarDays, MapPin } from "lucide-react"
 import Link from "next/link"
+import { redirect } from "next/navigation"
+import { ArrowLeft, CalendarDays, MapPin, MessageSquareText } from "lucide-react"
+import { createClient } from "@/lib/supabase/server"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { MatchReportPDF } from "@/components/match-report-pdf"
+import { TeamLogo } from "@/components/team-logo"
 
-export default async function MatchDetailPage({
-  params,
-}: {
-  params: Promise<{ tournamentId: string; matchId: string }>
-}) {
+interface PlayerStat { id: string; name: string; cap_number: number; goals: number; exclusions: number }
+
+export default async function MatchDetailPage({ params }: { params: Promise<{ tournamentId: string; matchId: string }> }) {
   const { tournamentId, matchId } = await params
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect("/auth/login")
-  }
-
-  const { data: match } = await supabase
-    .from("matches")
-    .select(
-      `
-      *,
-      team_a:teams!matches_team_a_id_fkey(name, logo_url),
-      team_b:teams!matches_team_b_id_fkey(name, logo_url)
-    `,
-    )
-    .eq("id", matchId)
-    .single()
-
-  if (!match) {
-    redirect(`/tournaments/${tournamentId}/matches`)
-  }
-
-  const { data: events } = await supabase
-    .from("match_events")
-    .select(
-      `
-      *,
-      player:players(id, name, cap_number, team_id)
-    `,
-    )
-    .eq("match_id", matchId)
-
-  const { data: teamAPlayers } = await supabase
-    .from("players")
-    .select("*")
-    .eq("team_id", match.team_a_id)
-    .order("cap_number")
-
-  const { data: teamBPlayers } = await supabase
-    .from("players")
-    .select("*")
-    .eq("team_id", match.team_b_id)
-    .order("cap_number")
-
-  const getPlayerStats = (playerId: string) => {
-    const playerEvents = events?.filter((e) => e.player?.id === playerId) || []
-    return {
-      goals: playerEvents.filter((e) => e.event_type === "goal").length,
-      exclusions: playerEvents.filter((e) => e.event_type === "exclusion").length,
-    }
-  }
-
-  const teamAPlayersWithStats = (teamAPlayers || []).map((p) => ({
-    ...p,
-    ...getPlayerStats(p.id),
-  }))
-
-  const teamBPlayersWithStats = (teamBPlayers || []).map((p) => ({
-    ...p,
-    ...getPlayerStats(p.id),
-  }))
-
-  return (
-    <div className="container mx-auto p-6">
-      <div className="mb-8 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href={`/tournaments/${tournamentId}/matches`}>
-            <Button variant="ghost" size="icon">
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-4xl font-bold gradient-text mb-2">Acta del Partido</h1>
-            <p className="text-muted-foreground">Resumen completo y estadísticas</p>
-          </div>
-        </div>
-        <MatchReportPDF match={match} teamAPlayers={teamAPlayersWithStats} teamBPlayers={teamBPlayersWithStats} />
-      </div>
-
-      {/* INFORMACIÓN DEL PARTIDO */}
-      <Card className="bg-card/80 backdrop-blur-lg border border-primary/30 shadow-xl mb-6">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <CalendarDays className="h-5 w-5 text-cyan-400" />
-              <span className="text-sm text-muted-foreground">
-                {new Date(match.match_date).toLocaleDateString("es-ES", {
-                  weekday: "long",
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
-            </div>
-            {match.location && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <MapPin className="h-4 w-4" />
-                {match.location}
-              </div>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {/* MARCADOR */}
-          <div className="flex items-center justify-center mb-6">
-            <div className="flex-1 flex items-center justify-end gap-4">
-              {match.team_a?.logo_url && (
-                <img
-                  src={match.team_a.logo_url || "/placeholder.svg"}
-                  alt=""
-                  className="h-16 w-16 rounded-full object-cover"
-                />
-              )}
-              <p className="font-bold text-2xl">{match.team_a?.name}</p>
-            </div>
-            <div className="px-12 py-6 bg-card/60 backdrop-blur-lg border border-primary/20 rounded-lg mx-8">
-              <div className="flex items-center gap-6">
-                <span className="text-5xl font-bold sport-gradient-text">{match.team_a_score || 0}</span>
-                <span className="text-4xl font-bold text-muted-foreground">-</span>
-                <span className="text-5xl font-bold sport-gradient-text">{match.team_b_score || 0}</span>
-              </div>
-            </div>
-            <div className="flex-1 flex items-center gap-4">
-              <p className="font-bold text-2xl">{match.team_b?.name}</p>
-              {match.team_b?.logo_url && (
-                <img
-                  src={match.team_b.logo_url || "/placeholder.svg"}
-                  alt=""
-                  className="h-16 w-16 rounded-full object-cover"
-                />
-              )}
-            </div>
-          </div>
-
-          {/* COMENTARIOS */}
-          {match.comments && (
-            <div className="p-4 bg-card/60 backdrop-blur-lg border border-primary/20 rounded-lg">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">Comentarios</h3>
-              <p className="text-foreground">{match.comments}</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ESTADÍSTICAS DE JUGADORES */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* EQUIPO A */}
-        <Card className="bg-card/80 backdrop-blur-lg border border-primary/30 shadow-xl">
-          <CardHeader>
-            <h2 className="text-2xl font-bold gradient-text flex items-center gap-3">
-              {match.team_a?.logo_url && (
-                <img
-                  src={match.team_a.logo_url || "/placeholder.svg"}
-                  alt=""
-                  className="h-10 w-10 rounded-full object-cover"
-                />
-              )}
-              {match.team_a?.name}
-            </h2>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-primary/20">
-                    <th className="text-left p-2 text-sm font-semibold text-muted-foreground">Gorro</th>
-                    <th className="text-left p-2 text-sm font-semibold text-muted-foreground">Jugador</th>
-                    <th className="text-center p-2 text-sm font-semibold text-muted-foreground">Goles</th>
-                    <th className="text-center p-2 text-sm font-semibold text-muted-foreground">Exclusiones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {teamAPlayersWithStats.map((player) => (
-                    <tr key={player.id} className="border-b border-primary/10 hover:bg-primary/5">
-                      <td className="p-2">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-white font-bold text-sm">
-                          {player.cap_number}
-                        </div>
-                      </td>
-                      <td className="p-2 font-medium">{player.name}</td>
-                      <td className="p-2 text-center">
-                        <span className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-cyan-500/20 text-cyan-400 font-bold text-sm">
-                          {player.goals}
-                        </span>
-                      </td>
-                      <td className="p-2 text-center">
-                        <span
-                          className={`inline-flex items-center justify-center h-7 w-7 rounded-full font-bold text-sm ${
-                            player.exclusions === 3
-                              ? "bg-red-500/20 text-red-400"
-                              : player.exclusions === 2
-                                ? "bg-yellow-500/20 text-yellow-400"
-                                : "bg-orange-500/20 text-orange-400"
-                          }`}
-                        >
-                          {player.exclusions}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* EQUIPO B */}
-        <Card className="bg-card/80 backdrop-blur-lg border border-primary/30 shadow-xl">
-          <CardHeader>
-            <h2 className="text-2xl font-bold gradient-text flex items-center gap-3">
-              {match.team_b?.logo_url && (
-                <img
-                  src={match.team_b.logo_url || "/placeholder.svg"}
-                  alt=""
-                  className="h-10 w-10 rounded-full object-cover"
-                />
-              )}
-              {match.team_b?.name}
-            </h2>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-primary/20">
-                    <th className="text-left p-2 text-sm font-semibold text-muted-foreground">Gorro</th>
-                    <th className="text-left p-2 text-sm font-semibold text-muted-foreground">Jugador</th>
-                    <th className="text-center p-2 text-sm font-semibold text-muted-foreground">Goles</th>
-                    <th className="text-center p-2 text-sm font-semibold text-muted-foreground">Exclusiones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {teamBPlayersWithStats.map((player) => (
-                    <tr key={player.id} className="border-b border-primary/10 hover:bg-primary/5">
-                      <td className="p-2">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-red-600 text-white font-bold text-sm">
-                          {player.cap_number}
-                        </div>
-                      </td>
-                      <td className="p-2 font-medium">{player.name}</td>
-                      <td className="p-2 text-center">
-                        <span className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-cyan-500/20 text-cyan-400 font-bold text-sm">
-                          {player.goals}
-                        </span>
-                      </td>
-                      <td className="p-2 text-center">
-                        <span
-                          className={`inline-flex items-center justify-center h-7 w-7 rounded-full font-bold text-sm ${
-                            player.exclusions === 3
-                              ? "bg-red-500/20 text-red-400"
-                              : player.exclusions === 2
-                                ? "bg-yellow-500/20 text-yellow-400"
-                                : "bg-orange-500/20 text-orange-400"
-                          }`}
-                        >
-                          {player.exclusions}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  )
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect("/auth/login")
+  const { data: match } = await supabase.from("matches").select(`*, team_a:teams!matches_team_a_id_fkey(name, logo_url), team_b:teams!matches_team_b_id_fkey(name, logo_url)`).eq("id", matchId).eq("tournament_id", tournamentId).single()
+  if (!match) redirect(`/tournaments/${tournamentId}/matches`)
+  const [{ data: events }, { data: teamAPlayers }, { data: teamBPlayers }] = await Promise.all([
+    supabase.from("match_events").select("event_type, player:players(id, team_id)").eq("match_id", matchId),
+    supabase.from("players").select("id, name, cap_number").eq("team_id", match.team_a_id).order("cap_number"),
+    supabase.from("players").select("id, name, cap_number").eq("team_id", match.team_b_id).order("cap_number"),
+  ])
+  const withStats = (players: typeof teamAPlayers): PlayerStat[] => (players || []).map((player) => ({ ...player, goals: (events || []).filter((event) => (event.player as unknown as { id: string } | null)?.id === player.id && event.event_type === "goal").length, exclusions: (events || []).filter((event) => (event.player as unknown as { id: string } | null)?.id === player.id && event.event_type === "exclusion").length }))
+  const teamA = match.team_a as unknown as { name: string; logo_url: string | null }
+  const teamB = match.team_b as unknown as { name: string; logo_url: string | null }
+  const teamAStats = withStats(teamAPlayers)
+  const teamBStats = withStats(teamBPlayers)
+  const roster = (name: string, logoUrl: string | null, players: PlayerStat[]) => <Card className="overflow-hidden"><CardHeader className="border-b bg-muted/15"><CardTitle className="flex items-center gap-3"><TeamLogo name={name} logoUrl={logoUrl} className="h-10 w-10 bg-background" /><span className="truncate">{name}</span></CardTitle></CardHeader><CardContent className="px-0"><div className="overflow-x-auto"><table className="w-full min-w-[460px]"><thead><tr className="border-b bg-muted/10 text-xs uppercase tracking-wider text-muted-foreground"><th className="px-4 py-3 text-left">Gorro</th><th className="px-3 py-3 text-left">Jugador</th><th className="px-3 py-3 text-center">Goles</th><th className="px-3 py-3 text-center">Exclusiones</th></tr></thead><tbody>{players.map((player) => <tr key={player.id} className="border-b last:border-0 hover:bg-muted/25"><td className="px-4 py-3"><span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">{player.cap_number}</span></td><td className="px-3 py-3 font-medium">{player.name}</td><td className="px-3 py-3 text-center font-bold tabular-nums">{player.goals}</td><td className="px-3 py-3 text-center"><span className={`inline-flex h-8 w-8 items-center justify-center rounded-full font-bold tabular-nums ${player.exclusions >= 3 ? "bg-destructive/10 text-destructive" : player.exclusions === 2 ? "bg-amber-500/10 text-amber-700 dark:text-amber-400" : "bg-muted text-muted-foreground"}`}>{player.exclusions}</span></td></tr>)}</tbody></table></div></CardContent></Card>
+  return <main className="container mx-auto max-w-6xl space-y-6 px-4 py-5 sm:px-6 sm:py-8">
+    <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><Button asChild variant="ghost" size="icon"><Link href={`/tournaments/${tournamentId}/matches`} aria-label="Volver a partidos"><ArrowLeft className="h-5 w-5" /></Link></Button><div><h1 className="text-2xl font-semibold sm:text-3xl">Acta del partido</h1><p className="text-sm text-muted-foreground">Resultado, observaciones y estadísticas individuales.</p></div></div><MatchReportPDF match={match} teamAPlayers={teamAStats} teamBPlayers={teamBStats} className="h-10 gap-2" /></header>
+    <Card className="overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/15 px-5 py-3 text-sm text-muted-foreground"><span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4" />{new Date(match.match_date).toLocaleString("es-ES", { dateStyle: "long", timeStyle: "short" })}</span>{match.location && <span className="inline-flex items-center gap-2"><MapPin className="h-4 w-4" />{match.location}</span>}</div><CardContent className="p-5 sm:p-8"><div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 sm:gap-8"><div className="flex min-w-0 flex-col items-center gap-3 text-center sm:flex-row sm:justify-end sm:text-right"><TeamLogo name={teamA.name} logoUrl={teamA.logo_url} className="h-14 w-14 sm:h-16 sm:w-16" /><h2 className="line-clamp-2 text-base font-semibold sm:text-xl">{teamA.name}</h2></div><div className="rounded-xl border bg-muted/20 px-4 py-4 text-center shadow-sm sm:px-8"><div className="whitespace-nowrap text-4xl font-bold tabular-nums sm:text-5xl">{match.team_a_score ?? 0}<span className="mx-2 font-medium text-muted-foreground">–</span>{match.team_b_score ?? 0}</div><p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Final</p></div><div className="flex min-w-0 flex-col items-center gap-3 text-center sm:flex-row sm:text-left"><TeamLogo name={teamB.name} logoUrl={teamB.logo_url} className="h-14 w-14 sm:h-16 sm:w-16" /><h2 className="line-clamp-2 text-base font-semibold sm:text-xl">{teamB.name}</h2></div></div>{match.comments && <div className="mt-7 flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4"><MessageSquareText className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" /><div><p className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">Comentarios del acta</p><p className="mt-2 whitespace-pre-wrap leading-7">{match.comments}</p></div></div>}</CardContent></Card>
+    <section className="grid gap-5 lg:grid-cols-2">{roster(teamA.name, teamA.logo_url, teamAStats)}{roster(teamB.name, teamB.logo_url, teamBStats)}</section>
+  </main>
 }

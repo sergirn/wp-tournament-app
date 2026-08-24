@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Trophy, Target, AlertCircle, CalendarRange, Goal, Activity } from "lucide-react"
+import { Trophy, Target, AlertCircle, CalendarRange, Goal } from "lucide-react"
 
 type PlayerStat = {
   player_id: string
@@ -35,9 +35,7 @@ export default async function StatsPage({
 
   const matchIds = tournamentMatches?.map((m) => m.id) || []
 
-  const { data: topScorers } = await supabase
-    .from("match_events")
-    .select(`
+  const eventSelect = `
       player_id,
       players!inner(
         name,
@@ -45,9 +43,14 @@ export default async function StatsPage({
         team_id,
         teams!inner(name)
       )
-    `)
-    .eq("event_type", "goal")
-    .in("match_id", matchIds)
+    `
+
+  const [{ data: topScorers }, { data: topExclusions }] = matchIds.length > 0
+    ? await Promise.all([
+      supabase.from("match_events").select(eventSelect).eq("event_type", "goal").in("match_id", matchIds),
+      supabase.from("match_events").select(eventSelect).eq("event_type", "exclusion").in("match_id", matchIds),
+    ])
+    : [{ data: [] }, { data: [] }]
 
   const scorerStats =
     topScorers?.reduce((acc: PlayerStat[], event: any) => {
@@ -70,20 +73,6 @@ export default async function StatsPage({
     }, []) || []
 
   const sortedScorers = scorerStats.sort((a, b) => (b.goals || 0) - (a.goals || 0)).slice(0, 10)
-
-  const { data: topExclusions } = await supabase
-    .from("match_events")
-    .select(`
-      player_id,
-      players!inner(
-        name,
-        cap_number,
-        team_id,
-        teams!inner(name)
-      )
-    `)
-    .eq("event_type", "exclusion")
-    .in("match_id", matchIds)
 
   const exclusionStats =
     topExclusions?.reduce((acc: PlayerStat[], event: any) => {
@@ -114,11 +103,11 @@ export default async function StatsPage({
     .select("team_a_score, team_b_score, status")
     .eq("tournament_id", tournamentId)
 
+  const finishedMatches = matches?.filter((match) => match.status === "finished") || []
   const totalMatches = matches?.length || 0
-  const completedMatches = matches?.filter((m) => m.status === "completed").length || 0
+  const completedMatches = finishedMatches.length
   const totalGoals =
-    matches?.reduce((sum, m) => sum + (m.team_a_score || 0) + (m.team_b_score || 0), 0) || 0
-  const avgGoalsPerMatch = completedMatches > 0 ? (totalGoals / completedMatches).toFixed(1) : "0.0"
+    finishedMatches.reduce((sum, match) => sum + (match.team_a_score || 0) + (match.team_b_score || 0), 0)
 
   return (
     <div className="container mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-6">

@@ -25,7 +25,11 @@ export async function updateSession(request: NextRequest) {
     },
   )
 
-  await supabase.auth.getUser()
+  try {
+    await supabase.auth.getUser()
+  } catch (error) {
+    console.error("No se pudo conectar con Supabase al actualizar la sesiÃ³n", error)
+  }
 
   return supabaseResponse
 }

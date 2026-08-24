@@ -1,24 +1,30 @@
 import type React from "react"
-import type { Metadata } from "next"
-import { Geist, Geist_Mono } from "next/font/google"
+import type { Metadata, Viewport } from "next"
+import localFont from "next/font/local"
 import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/components/theme-provider"
 import "./globals.css"
+import { PwaRegister } from "@/components/pwa-register"
 
-const geist = Geist({
-  subsets: ["latin"],
-  variable: "--font-geist-sans",
-})
-
-const geistMono = Geist_Mono({
-  subsets: ["latin"],
-  variable: "--font-geist-mono",
+const baiJamjuree = localFont({
+  src: [
+    { path: "../public/fonts/bai-jamjuree-400.ttf", weight: "400", style: "normal" },
+    { path: "../public/fonts/bai-jamjuree-500.ttf", weight: "500", style: "normal" },
+    { path: "../public/fonts/bai-jamjuree-600.ttf", weight: "600", style: "normal" },
+    { path: "../public/fonts/bai-jamjuree-700.ttf", weight: "700", style: "normal" },
+  ],
+  display: "swap",
+  variable: "--font-bai-jamjuree",
 })
 
 export const metadata: Metadata = {
   title: "Waterpolo Manager - Sistema de Gestión de Torneos",
   description: "Aplicación profesional para gestionar torneos de waterpolo, actas de partidos y estadísticas",
   generator: "v0.app",
+  manifest: "/manifest.webmanifest",
+  applicationName: "Waterpolo Pro",
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "Waterpolo Pro" },
+  formatDetection: { telephone: false },
   icons: {
     icon: [
       {
@@ -38,6 +44,16 @@ export const metadata: Metadata = {
   },
 }
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f172a" },
+  ],
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -47,9 +63,8 @@ export default function RootLayout({
     <html
       lang="es"
       suppressHydrationWarning
-      className={`${geist.variable} ${geistMono.variable}`}
     >
-      <body className="font-sans antialiased">
+      <body className={`${baiJamjuree.variable} font-sans antialiased`}>
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -57,6 +72,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
+          <PwaRegister />
           <Analytics />
         </ThemeProvider>
       </body>

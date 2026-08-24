@@ -17,8 +17,8 @@ interface PlayerRowProps {
 
 export function PlayerRow({ player, team, onUpdateStat }: PlayerRowProps) {
   const getExclusionRowClass = (exclusions: number) => {
-    if (exclusions === 3) return "bg-red-900/40 border-red-700/60"
-    if (exclusions === 2) return "bg-yellow-900/40 border-yellow-700/60"
+    if (exclusions === 3) return "bg-red-500/10"
+    if (exclusions === 2) return "bg-amber-500/10"
     return ""
   }
 
@@ -27,7 +27,7 @@ export function PlayerRow({ player, team, onUpdateStat }: PlayerRowProps) {
 
   return (
     <tr
-      className={`border-b border-primary/10 hover:bg-primary/5 transition-colors ${getExclusionRowClass(player.exclusions)}`}
+      className={`border-b transition-colors hover:bg-muted/40 ${getExclusionRowClass(player.exclusions)}`}
     >
       <td className="p-2">
         <div
@@ -42,18 +42,18 @@ export function PlayerRow({ player, team, onUpdateStat }: PlayerRowProps) {
           <Button
             size="icon"
             variant="ghost"
-            className="h-7 w-7 hover:bg-primary/20 rounded-full"
+            className="h-8 w-8 rounded-full hover:bg-primary/10"
             onClick={() => onUpdateStat(team, player.id, "goals", -1)}
           >
             <Minus className="h-3 w-3" />
           </Button>
-          <span className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-cyan-500/20 text-cyan-400 font-bold text-sm">
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary tabular-nums">
             {player.goals}
           </span>
           <Button
             size="icon"
             variant="ghost"
-            className="h-7 w-7 hover:bg-primary/20 rounded-full"
+            className="h-8 w-8 rounded-full hover:bg-primary/10"
             onClick={() => onUpdateStat(team, player.id, "goals", 1)}
           >
             <Plus className="h-3 w-3" />
@@ -65,18 +65,18 @@ export function PlayerRow({ player, team, onUpdateStat }: PlayerRowProps) {
           <Button
             size="icon"
             variant="ghost"
-            className="h-7 w-7 hover:bg-primary/20 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+            className="h-8 w-8 rounded-full hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => onUpdateStat(team, player.id, "exclusions", -1)}
           >
             <Minus className="h-3 w-3" />
           </Button>
           <span
-            className={`inline-flex items-center justify-center h-7 w-7 rounded-full font-bold text-sm ${
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold tabular-nums ${
               player.exclusions === 3
                 ? "bg-red-500/20 text-red-400"
                 : player.exclusions === 2
-                  ? "bg-yellow-500/20 text-yellow-400"
-                  : "bg-orange-500/20 text-orange-400"
+                  ? "bg-amber-500/15 text-amber-600"
+                  : "bg-orange-500/10 text-orange-600"
             }`}
           >
             {player.exclusions}
@@ -84,7 +84,7 @@ export function PlayerRow({ player, team, onUpdateStat }: PlayerRowProps) {
           <Button
             size="icon"
             variant="ghost"
-            className="h-7 w-7 hover:bg-primary/20 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+            className="h-8 w-8 rounded-full hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => onUpdateStat(team, player.id, "exclusions", 1)}
             disabled={player.exclusions >= 3}
           >

@@ -10,7 +10,6 @@ import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ArrowLeft, ArrowRight, Shuffle, Search, CheckCircle2 } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
 
 type Step = "basic" | "teams" | "groups" | "complete"
 
@@ -46,7 +45,7 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
   }, [teams, selectedTeams])
 
   const groupNames = useMemo(() => {
-    return Array.from({ length: numGroups }, (_, i) => `Group ${String.fromCharCode(65 + i)}`)
+    return Array.from({ length: numGroups }, (_, i) => `Grupo ${String.fromCharCode(65 + i)}`)
   }, [numGroups])
 
   const assignedTeamIds = useMemo(() => {
@@ -71,13 +70,13 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
   const getStepLabel = (value: Step) => {
     switch (value) {
       case "basic":
-        return "Step 1: Basic information"
+        return "Paso 1: Información básica"
       case "teams":
-        return "Step 2: Select teams"
+        return "Paso 2: Seleccionar equipos"
       case "groups":
-        return "Step 3: Organize groups"
+        return "Paso 3: Organizar grupos"
       case "complete":
-        return "Completed"
+        return "Completado"
     }
   }
 
@@ -150,71 +149,26 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
     if (!basicStepValid || !teamsStepValid || !groupsStepValid) return
 
     setLoading(true)
-    const supabase = createClient()
-
     try {
-      const { data: tournament, error: tournamentError } = await supabase
-        .from("tournaments")
-        .insert({
-          name: tournamentName.trim(),
-          type: tournamentType,
-          status: "active",
-        })
-        .select()
-        .single()
-
-      if (tournamentError) throw tournamentError
-
-      const tournamentTeamsData = selectedTeams.map((teamId) => ({
-        tournament_id: tournament.id,
-        team_id: teamId,
-      }))
-
-      const { error: teamsError } = await supabase.from("tournament_teams").insert(tournamentTeamsData)
-
-      if (teamsError) throw teamsError
-
-      if (tournamentType === "groups") {
-        const validGroupEntries = groupNames
-          .map((groupName) => [groupName, groups[groupName] || []] as const)
-          .filter(([, teamIds]) => teamIds.length > 0)
-
-        for (let i = 0; i < validGroupEntries.length; i++) {
-          const [groupName, teamIds] = validGroupEntries[i]
-
-          const { data: group, error: groupError } = await supabase
-            .from("groups")
-            .insert({
-              tournament_id: tournament.id,
-              name: groupName,
-              order_number: i + 1,
-            })
-            .select()
-            .single()
-
-          if (groupError) throw groupError
-
-          const groupMembersData = teamIds.map((teamId) => ({
-            group_id: group.id,
-            team_id: teamId,
-          }))
-
-          const { error: membersError } = await supabase.from("group_members").insert(groupMembersData)
-
-          if (membersError) throw membersError
-        }
-      }
+      const groupPayload = tournamentType === "groups"
+        ? groupNames.map((name, index) => ({ name, orderNumber: index + 1, teamIds: groups[name] || [] }))
+        : []
+      const response = await fetch("/api/tournaments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: tournamentName, type: tournamentType, teamIds: selectedTeams, groups: groupPayload }),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || "No se pudo crear el torneo")
 
       setStep("complete")
 
       setTimeout(() => {
-        router.push(`/tournaments/${tournament.id}`)
+        router.push(`/tournaments/${result.tournamentId}`)
       }, 1600)
-    } catch (error: any) {
-      console.error("Error creating tournament:")
-      console.error(JSON.stringify(error, null, 2))
+    } catch (error: unknown) {
       console.error(error)
-      alert(error?.message || "Error creating tournament")
+      alert(error instanceof Error ? error.message : "Error creating tournament")
     } finally {
       setLoading(false)
     }
@@ -222,16 +176,8 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
-      <div className="absolute inset-0">
-        <div
-          className="absolute inset-0 bg-cover bg-center opacity-[0.04] dark:opacity-[0.1]"
-          style={{ backgroundImage: "url('/images/2.png')" }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-br from-background via-background/95 to-muted/40" />
-        <div className="absolute left-1/2 top-0 h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
-        <div className="absolute bottom-0 left-0 h-[260px] w-[260px] rounded-full bg-foreground/5 blur-3xl" />
-        <div className="absolute right-0 top-1/3 h-[220px] w-[220px] rounded-full bg-primary/10 blur-3xl" />
-      </div>
+      <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.035] via-background to-background" />
+      <div className="absolute left-1/2 top-0 h-72 w-[36rem] max-w-full -translate-x-1/2 rounded-full bg-primary/[0.06] blur-3xl" />
 
       <div className="relative z-10 mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
         <div className="mb-8 space-y-5">
@@ -241,13 +187,13 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
             className="rounded-xl text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Back
+            Volver
           </Button>
 
           <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
             <div className="space-y-4">
               <div className="inline-flex items-center rounded-full border border-border/60 bg-background/70 px-4 py-1.5 text-sm text-muted-foreground shadow-sm backdrop-blur-md">
-                Tournament creation
+                Creación de torneo
               </div>
 
               <div className="flex items-center gap-4">
@@ -263,7 +209,7 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
                 </div>
 
                 <div>
-                  <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Create tournament</h1>
+                  <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Crear torneo</h1>
                   <p className="mt-1 text-sm text-muted-foreground sm:text-base">{getStepLabel(step)}</p>
                 </div>
               </div>
@@ -271,7 +217,7 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
 
             <div className="rounded-3xl border border-border/60 bg-card/70 p-4 shadow-sm backdrop-blur-xl">
               <div className="mb-3 flex items-center justify-between text-sm">
-                <span className="font-medium">Progress</span>
+                <span className="font-medium">Progreso</span>
                 <span className="text-muted-foreground">
                   {step === "complete" ? "100%" : `${Math.round(((currentStepIndex + 1) / 3) * 100)}%`}
                 </span>
@@ -294,27 +240,27 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
               </div>
 
               <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-                <span>Basic</span>
-                <span className="text-center">Teams</span>
-                <span className="text-right">Groups</span>
+                <span>Información</span>
+                <span className="text-center">Equipos</span>
+                <span className="text-right">Grupos</span>
               </div>
             </div>
           </div>
         </div>
 
         {step === "basic" && (
-          <Card className="overflow-hidden rounded-3xl border border-border/60 bg-card/80 shadow-xl backdrop-blur-2xl">
+          <Card className="overflow-hidden rounded-2xl border bg-card shadow-sm">
             <CardHeader className="pb-4">
-              <CardTitle className="text-2xl tracking-tight">Tournament details</CardTitle>
-              <CardDescription>Choose the tournament name and the competition format.</CardDescription>
+              <CardTitle className="text-2xl tracking-tight">Datos del torneo</CardTitle>
+              <CardDescription>Elige el nombre y el formato de la competición.</CardDescription>
             </CardHeader>
 
             <CardContent className="space-y-8">
               <div className="space-y-2">
-                <Label htmlFor="name">Tournament name</Label>
+                <Label htmlFor="name">Nombre del torneo</Label>
                 <Input
                   id="name"
-                  placeholder="Example: National League 2026"
+                  placeholder="Ejemplo: Liga Nacional 2026"
                   value={tournamentName}
                   onChange={(e) => setTournamentName(e.target.value)}
                   className="h-12 rounded-xl border-border bg-background/70"
@@ -322,7 +268,7 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
               </div>
 
               <div className="space-y-3">
-                <Label>Tournament type</Label>
+                <Label>Tipo de torneo</Label>
 
                 <RadioGroup
                   value={tournamentType}
@@ -340,9 +286,9 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
                     <div className="flex items-start gap-3">
                       <RadioGroupItem value="league" id="league" className="mt-1" />
                       <div className="space-y-1">
-                        <div className="font-semibold">League</div>
+                        <div className="font-semibold">Liga</div>
                         <p className="text-sm text-muted-foreground">
-                          Every team plays against all the others.
+                          Todos los equipos se enfrentan entre sí.
                         </p>
                       </div>
                     </div>
@@ -359,9 +305,9 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
                     <div className="flex items-start gap-3">
                       <RadioGroupItem value="groups" id="groups" className="mt-1" />
                       <div className="space-y-1">
-                        <div className="font-semibold">Group stage</div>
+                        <div className="font-semibold">Fase de grupos</div>
                         <p className="text-sm text-muted-foreground">
-                          Teams are divided into groups before the next phase.
+                          Los equipos se distribuyen en grupos antes de la siguiente fase.
                         </p>
                       </div>
                     </div>
@@ -375,7 +321,7 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
                   onClick={() => setStep("teams")}
                   disabled={!basicStepValid}
                 >
-                  Continue
+                  Continuar
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </div>
@@ -384,11 +330,11 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
         )}
 
         {step === "teams" && (
-          <Card className="overflow-hidden rounded-3xl border border-border/60 bg-card/80 shadow-xl backdrop-blur-2xl">
+          <Card className="overflow-hidden rounded-2xl border bg-card shadow-sm">
             <CardHeader className="pb-4">
-              <CardTitle className="text-2xl tracking-tight">Select participating teams</CardTitle>
+              <CardTitle className="text-2xl tracking-tight">Seleccionar equipos participantes</CardTitle>
               <CardDescription>
-                {selectedTeams.length} selected out of {teams.length} available teams.
+                {selectedTeams.length} seleccionados de {teams.length} equipos disponibles.
               </CardDescription>
             </CardHeader>
 
@@ -396,7 +342,7 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Search teams..."
+                  placeholder="Buscar equipos..."
                   value={searchTeam}
                   onChange={(e) => setSearchTeam(e.target.value)}
                   className="h-12 rounded-xl border-border bg-background/70 pl-10"
@@ -406,7 +352,7 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
               <div className="grid max-h-[28rem] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
                 {filteredTeams.length === 0 ? (
                   <div className="col-span-2 rounded-2xl border border-dashed border-border/60 py-10 text-center text-muted-foreground">
-                    No teams found
+                    No se encontraron equipos
                   </div>
                 ) : (
                   filteredTeams.map((team) => {
@@ -457,7 +403,7 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
                   className="h-12 flex-1 rounded-xl"
                 >
                   <ArrowLeft className="mr-2 h-4 w-4" />
-                  Back
+                  Volver
                 </Button>
 
                 <Button
@@ -472,7 +418,7 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
                   }}
                   disabled={!teamsStepValid || loading}
                 >
-                  {tournamentType === "groups" ? "Continue to groups" : loading ? "Creating..." : "Create tournament"}
+                  {tournamentType === "groups" ? "Continuar a grupos" : loading ? "Creando..." : "Crear torneo"}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </div>
@@ -481,18 +427,18 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
         )}
 
         {step === "groups" && tournamentType === "groups" && (
-          <Card className="overflow-hidden rounded-3xl border border-border/60 bg-card/80 shadow-xl backdrop-blur-2xl">
+          <Card className="overflow-hidden rounded-2xl border bg-card shadow-sm">
             <CardHeader className="border-b border-border/60 pb-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>
-                  <CardTitle className="text-2xl tracking-tight">Organize groups</CardTitle>
+                  <CardTitle className="text-2xl tracking-tight">Organizar grupos</CardTitle>
                   <CardDescription className="mt-2 text-sm sm:text-base">
-                    Configure the groups first, then distribute teams below.
+                    Configura los grupos y distribuye los equipos.
                   </CardDescription>
                 </div>
 
                 <div className="inline-flex items-center rounded-full border border-border/60 bg-background/70 px-4 py-2 text-sm text-muted-foreground">
-                  {assignedTeamIds.length} / {selectedTeams.length} teams assigned
+                  {assignedTeamIds.length} / {selectedTeams.length} equipos asignados
                 </div>
               </div>
             </CardHeader>
@@ -501,15 +447,15 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
               <div className="grid gap-5 xl:grid-cols-1">
                 <div className="rounded-2xl border border-border/60 bg-background/60 p-6 shadow-sm">
                   <div className="mb-5">
-                    <h3 className="text-lg font-semibold tracking-tight">Group configuration</h3>
+                    <h3 className="text-lg font-semibold tracking-tight">Configuración de grupos</h3>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Define the number of groups and choose how teams should be distributed.
+                      Define el número de grupos y cómo se repartirán los equipos.
                     </p>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-[220px_1fr] md:items-end">
                     <div className="space-y-2">
-                      <Label htmlFor="num-groups">Number of groups</Label>
+                      <Label htmlFor="num-groups">Número de grupos</Label>
                       <Input
                         id="num-groups"
                         type="number"
@@ -527,12 +473,12 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
 
                     <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
                       <Button variant="outline" onClick={resetGroups} className="h-11 rounded-xl">
-                        Reset groups
+                        Restablecer grupos
                       </Button>
 
                       <Button onClick={distributeTeamsRandomly} className="h-11 rounded-xl">
                         <Shuffle className="mr-2 h-4 w-4" />
-                        Random distribution
+                        Distribución aleatoria
                       </Button>
                     </div>
                   </div>
@@ -543,9 +489,9 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
 
               <div className="space-y-4">
                 <div>
-                  <h3 className="text-lg font-semibold tracking-tight">Groups</h3>
+                  <h3 className="text-lg font-semibold tracking-tight">Grupos</h3>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Review the final distribution below. You can move teams between groups manually.
+                    Revisa el reparto final. Puedes mover equipos manualmente entre grupos.
                   </p>
                 </div>
 
@@ -568,12 +514,12 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
                           <div>
                             <h4 className="text-lg font-semibold tracking-tight">{groupName}</h4>
                             <p className="mt-1 text-sm text-muted-foreground">
-                              {groupTeams.length} {groupTeams.length === 1 ? "team" : "teams"}
+                              {groupTeams.length} {groupTeams.length === 1 ? "equipo" : "equipos"}
                             </p>
                           </div>
 
                           <div className="rounded-full border border-border/60 bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
-                            Pool
+                            Grupo
                           </div>
                         </div>
 
@@ -606,7 +552,7 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
 
                                     <div className="min-w-0">
                                       <p className="truncate text-sm font-medium">{team!.name}</p>
-                                      <p className="text-xs text-muted-foreground">Drag to move</p>
+                                      <p className="text-xs text-muted-foreground">Arrastra para mover</p>
                                     </div>
                                   </div>
 
@@ -616,18 +562,18 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
                                     onClick={() => removeTeamFromGroup(groupName, team!.id)}
                                     className="h-8 rounded-lg px-2 text-muted-foreground hover:text-foreground"
                                   >
-                                    Remove
+                                    Quitar
                                   </Button>
                                 </div>
                               ))
                           ) : (
                             <div className="rounded-xl border border-dashed border-border/70 bg-background/50 px-4 py-10 text-center text-sm text-muted-foreground">
-                              This group is empty
+                              Este grupo está vacío
                             </div>
                           )}
 
                           <div className="flex min-h-[56px] items-center justify-center rounded-xl border-2 border-dashed border-border/70 bg-background/40 text-sm text-muted-foreground">
-                            Drop teams here
+                            Suelta los equipos aquí
                           </div>
                         </div>
                       </div>
@@ -643,7 +589,7 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
                   className="h-12 flex-1 rounded-xl"
                 >
                   <ArrowLeft className="mr-2 h-4 w-4" />
-                  Back
+                  Volver
                 </Button>
 
                 <Button
@@ -651,7 +597,7 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
                   onClick={handleCreateTournament}
                   disabled={loading || !groupsStepValid}
                 >
-                  {loading ? "Creating tournament..." : "Create tournament"}
+                  {loading ? "Creando torneo..." : "Crear torneo"}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </div>
@@ -660,7 +606,7 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
         )}
 
         {step === "complete" && (
-          <Card className="overflow-hidden rounded-3xl border border-border/60 bg-card/80 shadow-xl backdrop-blur-2xl">
+          <Card className="overflow-hidden rounded-2xl border bg-card shadow-sm">
             <CardContent className="py-20 text-center">
               <div className="mb-6 flex justify-center">
                 <div className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/10">
@@ -668,8 +614,8 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
                 </div>
               </div>
 
-              <h2 className="text-2xl font-semibold tracking-tight">Tournament created successfully</h2>
-              <p className="mt-3 text-muted-foreground">Redirecting to the tournament dashboard...</p>
+              <h2 className="text-2xl font-semibold tracking-tight">Torneo creado correctamente</h2>
+              <p className="mt-3 text-muted-foreground">Abriendo el panel del torneo...</p>
             </CardContent>
           </Card>
         )}

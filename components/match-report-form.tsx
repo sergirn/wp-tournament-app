@@ -1,16 +1,16 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import { TeamPanel } from "./match-report-form/team-panel"
 import { ScorePanel } from "./match-report-form/score-panel"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 interface Team {
   id: string
   name: string
+  logo_url?: string | null
 }
 
 interface Player {
@@ -24,37 +24,49 @@ interface Player {
 interface MatchReportFormProps {
   teams: Team[]
   tournamentId: string
+  initialTeamAId?: string
+  initialTeamBId?: string
+  fixedGroupId?: string
+  skipGroupLookup?: boolean
+  lockTeams?: boolean
+  onSaved?: () => void
 }
 
-export function MatchReportForm({ teams, tournamentId }: MatchReportFormProps) {
-  const [teamAId, setTeamAId] = useState("")
-  const [teamBId, setTeamBId] = useState("")
+export function MatchReportForm({ teams, tournamentId, initialTeamAId = "", initialTeamBId = "", fixedGroupId, skipGroupLookup = false, lockTeams = false, onSaved }: MatchReportFormProps) {
+  const [teamAId, setTeamAId] = useState(initialTeamAId)
+  const [teamBId, setTeamBId] = useState(initialTeamBId)
   const [teamAPlayers, setTeamAPlayers] = useState<Player[]>([])
   const [teamBPlayers, setTeamBPlayers] = useState<Player[]>([])
   const [comments, setComments] = useState("")
   const [loading, setLoading] = useState(false)
-  const [isMobile, setIsMobile] = useState(false)
+  const [playersError, setPlayersError] = useState<string | null>(null)
+  const playerRequest = useRef({ A: 0, B: 0 })
+
+  const teamAScore = teamAPlayers.reduce((sum, p) => sum + p.goals, 0)
+  const teamBScore = teamBPlayers.reduce((sum, p) => sum + p.goals, 0)
 
   useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 1024)
-    }
-    checkMobile()
-    window.addEventListener("resize", checkMobile)
-    return () => window.removeEventListener("resize", checkMobile)
-  }, [])
-
-  useEffect(() => {
-    if (teamAId) loadPlayers(teamAId, "A")
+    if (teamAId) void loadPlayers(teamAId, "A")
+    else setTeamAPlayers([])
   }, [teamAId])
 
   useEffect(() => {
-    if (teamBId) loadPlayers(teamBId, "B")
+    if (teamBId) void loadPlayers(teamBId, "B")
+    else setTeamBPlayers([])
   }, [teamBId])
 
   const loadPlayers = async (teamId: string, team: "A" | "B") => {
+    const requestId = ++playerRequest.current[team]
+    setPlayersError(null)
     const supabase = createClient()
-    const { data } = await supabase.from("players").select("*").eq("team_id", teamId).order("cap_number")
+    const { data, error } = await supabase.from("players").select("id, name, cap_number").eq("team_id", teamId).order("cap_number")
+    if (requestId !== playerRequest.current[team]) return
+    if (error) {
+      if (team === "A") setTeamAPlayers([])
+      else setTeamBPlayers([])
+      setPlayersError(`No se pudieron cargar los jugadores: ${error.message}`)
+      return
+    }
 
     const playersWithStats = (data || []).map((p) => ({
       ...p,
@@ -92,44 +104,20 @@ export function MatchReportForm({ teams, tournamentId }: MatchReportFormProps) {
     }
 
     setLoading(true)
-    const supabase = createClient()
-
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) {
-        throw new Error("Usuario no autenticado")
+      if (teamAId === teamBId) throw new Error("Selecciona dos equipos diferentes")
+      let groupId = fixedGroupId || null
+      if (!groupId && !skipGroupLookup) {
+        const supabase = createClient()
+        const { data: groupData, error: groupError } = await supabase
+          .from("group_members")
+          .select("group_id, groups!inner(tournament_id)")
+          .eq("team_id", teamAId)
+          .eq("groups.tournament_id", tournamentId)
+          .maybeSingle()
+        if (groupError) throw new Error("No se pudo determinar el grupo del partido")
+        groupId = groupData?.group_id || null
       }
-
-      const { data: groupData } = await supabase
-        .from("group_members")
-        .select("group_id, groups!inner(tournament_id)")
-        .eq("team_id", teamAId)
-        .eq("groups.tournament_id", tournamentId)
-        .single()
-
-      const groupId = groupData?.group_id || null
-
-      const { data: match, error: matchError } = await supabase
-        .from("matches")
-        .insert({
-          tournament_id: tournamentId,
-          group_id: groupId,
-          team_a_id: teamAId,
-          team_b_id: teamBId,
-          team_a_score: teamAPlayers.reduce((sum, p) => sum + p.goals, 0),
-          team_b_score: teamBPlayers.reduce((sum, p) => sum + p.goals, 0),
-          match_date: new Date().toISOString(),
-          status: "finished",
-          created_by: user.id,
-          comments: comments || null,
-        })
-        .select()
-        .single()
-
-      if (matchError) throw matchError
 
       const events = [
         ...teamAPlayers.flatMap((p) => [
@@ -140,22 +128,36 @@ export function MatchReportForm({ teams, tournamentId }: MatchReportFormProps) {
           ...Array(p.goals).fill({ player_id: p.id, event_type: "goal" }),
           ...Array(p.exclusions).fill({ player_id: p.id, event_type: "exclusion" }),
         ]),
-      ].map((e) => ({ ...e, match_id: match.id }))
+      ].map((event) => ({ playerId: event.player_id, eventType: event.event_type }))
 
-      if (events.length > 0) {
-        const { error: eventsError } = await supabase.from("match_events").insert(events)
-        if (eventsError) throw eventsError
-      }
+      const response = await fetch(`/api/tournaments/${tournamentId}/match-reports`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          groupId,
+          teamAId,
+          teamBId,
+          teamAScore,
+          teamBScore,
+          comments,
+          events,
+        }),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || "No se pudo guardar el acta")
 
       alert("Acta guardada correctamente")
-      setTeamAId("")
-      setTeamBId("")
+      if (!lockTeams) {
+        setTeamAId("")
+        setTeamBId("")
+      }
       setComments("")
       setTeamAPlayers([])
       setTeamBPlayers([])
+      onSaved?.()
     } catch (error) {
       console.error("Error saving match:", error)
-      alert("Error al guardar el acta")
+      alert(error instanceof Error ? error.message : "Error al guardar el acta")
     } finally {
       setLoading(false)
     }
@@ -171,12 +173,7 @@ export function MatchReportForm({ teams, tournamentId }: MatchReportFormProps) {
     doc.text("ACTA DE PARTIDO - WATERPOLO", 105, 20, { align: "center" })
 
     doc.setFontSize(16)
-    doc.text(
-      `${teamAName} ${teamAPlayers.reduce((sum, p) => sum + p.goals, 0)} - ${teamBPlayers.reduce((sum, p) => sum + p.goals, 0)} ${teamBName}`,
-      105,
-      35,
-      { align: "center" },
-    )
+    doc.text(`${teamAName} ${teamAScore} - ${teamBScore} ${teamBName}`, 105, 35, { align: "center" })
 
     doc.setFontSize(14)
     doc.text(teamAName, 14, 50)
@@ -198,98 +195,44 @@ export function MatchReportForm({ teams, tournamentId }: MatchReportFormProps) {
     doc.save(`acta-${teamAName}-vs-${teamBName}.pdf`)
   }
 
-  const teamAScore = teamAPlayers.reduce((sum, p) => sum + p.goals, 0)
-  const teamBScore = teamBPlayers.reduce((sum, p) => sum + p.goals, 0)
-
   return (
-    <div className="h-full flex flex-col bg-background">
-      {isMobile ? (
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <Tabs defaultValue="team-a" className="flex-1 flex flex-col">
-            <TabsList className="w-full grid grid-cols-3 h-12 shrink-0">
-              <TabsTrigger value="team-a" className="text-xs sm:text-sm">
-                Equipo A
-              </TabsTrigger>
-              <TabsTrigger value="score" className="text-xs sm:text-sm">
-                Marcador
-              </TabsTrigger>
-              <TabsTrigger value="team-b" className="text-xs sm:text-sm">
-                Equipo B
-              </TabsTrigger>
-            </TabsList>
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto md:grid-cols-[minmax(0,1fr)_220px_minmax(0,1fr)] md:overflow-hidden xl:grid-cols-[minmax(0,1fr)_250px_minmax(0,1fr)]">
+        {/* EQUIPO A COLUMN */}
+        <TeamPanel
+          team="A"
+          teams={lockTeams ? teams.filter((team) => team.id === teamAId) : teams}
+          selectedTeamId={teamAId}
+          onTeamChange={lockTeams ? () => {} : setTeamAId}
+          players={teamAPlayers}
+          onUpdateStat={updatePlayerStat}
+          excludedTeamId={teamBId}
+        />
 
-            <TabsContent value="team-a" className="flex-1 mt-0 overflow-hidden">
-              <TeamPanel
-                team="A"
-                teams={teams}
-                selectedTeamId={teamAId}
-                onTeamChange={setTeamAId}
-                players={teamAPlayers}
-                onUpdateStat={updatePlayerStat}
-              />
-            </TabsContent>
+        {/* MARCADOR Y CONTROLES CENTRALES */}
+        <ScorePanel
+          teamAScore={teamAScore}
+          teamBScore={teamBScore}
+          comments={comments}
+          onCommentsChange={setComments}
+          onSave={handleSave}
+          onDownloadPDF={handleDownloadPDF}
+          loading={loading}
+          canSave={!!(teamAId && teamBId && teamAId !== teamBId)}
+        />
 
-            <TabsContent value="score" className="flex-1 mt-0 overflow-auto">
-              <div className="h-full flex items-center justify-center p-4">
-                <div className="w-full max-w-md">
-                  <ScorePanel
-                    teamAScore={teamAScore}
-                    teamBScore={teamBScore}
-                    comments={comments}
-                    onCommentsChange={setComments}
-                    onSave={handleSave}
-                    onDownloadPDF={handleDownloadPDF}
-                    loading={loading}
-                    canSave={!!(teamAId && teamBId)}
-                  />
-                </div>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="team-b" className="flex-1 mt-0 overflow-hidden">
-              <TeamPanel
-                team="B"
-                teams={teams}
-                selectedTeamId={teamBId}
-                onTeamChange={setTeamBId}
-                players={teamBPlayers}
-                onUpdateStat={updatePlayerStat}
-              />
-            </TabsContent>
-          </Tabs>
-        </div>
-      ) : (
-        <div className="flex-1 grid grid-cols-[1fr_200px_1fr] gap-0 overflow-hidden">
-          <TeamPanel
-            team="A"
-            teams={teams}
-            selectedTeamId={teamAId}
-            onTeamChange={setTeamAId}
-            players={teamAPlayers}
-            onUpdateStat={updatePlayerStat}
-          />
-
-          <ScorePanel
-            teamAScore={teamAScore}
-            teamBScore={teamBScore}
-            comments={comments}
-            onCommentsChange={setComments}
-            onSave={handleSave}
-            onDownloadPDF={handleDownloadPDF}
-            loading={loading}
-            canSave={!!(teamAId && teamBId)}
-          />
-
-          <TeamPanel
-            team="B"
-            teams={teams}
-            selectedTeamId={teamBId}
-            onTeamChange={setTeamBId}
-            players={teamBPlayers}
-            onUpdateStat={updatePlayerStat}
-          />
-        </div>
-      )}
+        {/* EQUIPO B COLUMN */}
+        <TeamPanel
+          team="B"
+          teams={lockTeams ? teams.filter((team) => team.id === teamBId) : teams}
+          selectedTeamId={teamBId}
+          onTeamChange={lockTeams ? () => {} : setTeamBId}
+          players={teamBPlayers}
+          onUpdateStat={updatePlayerStat}
+          excludedTeamId={teamAId}
+        />
+      </div>
+      {playersError && <p className="px-4 py-2 text-sm text-destructive" role="alert">{playersError}</p>}
     </div>
   )
 }

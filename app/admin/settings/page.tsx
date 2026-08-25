@@ -9,7 +9,7 @@ export default async function AdminSettingsPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect("/auth/login")
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle()
-  if (profile?.role !== "admin") redirect("/")
+  if (profile?.role !== "admin") redirect("/dashboard")
   const admin = createAdminClient()
   if (!admin) throw new Error("Falta configurar SUPABASE_SERVICE_ROLE_KEY")
 

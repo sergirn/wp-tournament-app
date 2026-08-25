@@ -15,6 +15,53 @@ const reportSchema = z.object({
   events: z.array(z.object({ playerId: z.string().uuid(), eventType: z.enum(["goal", "exclusion"]) })).max(500),
 })
 
+const liveMatchSchema = z.object({
+  groupId: z.string().uuid().nullable(),
+  teamAId: z.string().uuid(),
+  teamBId: z.string().uuid(),
+})
+
+export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+  const admin = createAdminClient()
+  if (!admin) return NextResponse.json({ error: "Falta configurar el acceso administrativo de Supabase" }, { status: 500 })
+
+  const { data: profile } = await admin.from("profiles").select("role").eq("id", user.id).maybeSingle()
+  if (profile?.role !== "admin") {
+    const email = user.email?.toLowerCase()
+    const [{ data: byId }, { data: byEmail }] = await Promise.all([
+      admin.from("tournament_users").select("id").eq("tournament_id", id).eq("id", user.id).maybeSingle(),
+      email ? admin.from("tournament_users").select("id").eq("tournament_id", id).eq("email", email).maybeSingle() : Promise.resolve({ data: null }),
+    ])
+    if (!byId && !byEmail) return NextResponse.json({ error: "No tienes permiso para iniciar este partido" }, { status: 403 })
+  }
+
+  const parsed = liveMatchSchema.safeParse(await request.json().catch(() => null))
+  if (!parsed.success || parsed.data.teamAId === parsed.data.teamBId) return NextResponse.json({ error: "Datos del partido no válidos" }, { status: 400 })
+  const value = parsed.data
+  const { data: participants } = await admin.from("tournament_teams").select("team_id").eq("tournament_id", id).in("team_id", [value.teamAId, value.teamBId])
+  if (participants?.length !== 2) return NextResponse.json({ error: "Ambos equipos deben pertenecer al torneo" }, { status: 400 })
+
+  let phaseId: string | null = null
+  if (value.groupId) {
+    const { data: group } = await admin.from("groups").select("id, phase_id").eq("id", value.groupId).eq("tournament_id", id).maybeSingle()
+    if (!group) return NextResponse.json({ error: "El grupo no pertenece al torneo" }, { status: 400 })
+    phaseId = group.phase_id
+  }
+  const { data: existing } = await admin.from("matches").select("id, status").eq("tournament_id", id).or(`and(team_a_id.eq.${value.teamAId},team_b_id.eq.${value.teamBId}),and(team_a_id.eq.${value.teamBId},team_b_id.eq.${value.teamAId})`).in("status", ["scheduled", "in_progress"]).limit(1).maybeSingle()
+  if (existing) {
+    await admin.from("matches").update({ status: "in_progress", updated_at: new Date().toISOString() }).eq("id", existing.id)
+    return NextResponse.json({ matchId: existing.id })
+  }
+
+  const { data: match, error } = await admin.from("matches").insert({ tournament_id: id, group_id: value.groupId, phase_id: phaseId, team_a_id: value.teamAId, team_b_id: value.teamBId, team_a_score: 0, team_b_score: 0, match_date: new Date().toISOString(), status: "in_progress", created_by: user.id }).select("id").single()
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+  return NextResponse.json({ matchId: match.id }, { status: 201 })
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const supabase = await createClient()

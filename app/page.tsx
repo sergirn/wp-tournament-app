@@ -1,52 +1,21 @@
 import { createClient } from "@/lib/supabase/server"
-import { redirect } from "next/navigation"
-import { DashboardContent } from "@/components/dashboard-content"
+import { PublicTournamentLive } from "@/components/public-tournament-live"
 
-async function getTournaments() {
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
+export default async function PublicHomePage() {
   const supabase = await createClient()
-  const { data } = await supabase
-    .from("tournaments")
-    .select(`
-      *,
-      tournament_teams(count),
-      matches(count)
-    `)
-    .order("created_at", { ascending: false })
-  return data || []
-}
+  const { data: tournament } = await supabase.from("tournaments").select("id, name, status, points_win, points_draw, points_loss, created_at").eq("status", "active").order("created_at", { ascending: false }).limit(1).maybeSingle()
 
-async function getUserProfile() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return null
+  if (!tournament) return <PublicTournamentLive tournament={null} teams={[]} groups={[]} phases={[]} matches={[]} />
 
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single()
-
-  return profile
-}
-
-export default async function DashboardPage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect("/auth/login")
-  }
-
-  const [tournaments, profile, recentResult, teamsResult, incidentsResult, matchesResult] = await Promise.all([
-    getTournaments(),
-    getUserProfile(),
-    supabase.from("matches").select("id, tournament_id, team_a_score, team_b_score, updated_at, team_a:teams!matches_team_a_id_fkey(name), team_b:teams!matches_team_b_id_fkey(name), tournament:tournaments(name)").eq("status", "finished").order("updated_at", { ascending: false }).limit(5),
-    supabase.from("teams").select("id", { count: "exact", head: true }),
-    supabase.from("matches").select("id", { count: "exact", head: true }).not("comments", "is", null),
-    supabase.from("matches").select("id", { count: "exact", head: true }).eq("status", "finished"),
+  const [{ data: teamRows }, { data: groups }, { data: phases }, { data: matches }] = await Promise.all([
+    supabase.from("tournament_teams").select("team:teams(id, name, logo_url)").eq("tournament_id", tournament.id),
+    supabase.from("groups").select("id, name, order_number, phase_id, group_members(team_id)").eq("tournament_id", tournament.id).order("order_number"),
+    supabase.from("tournament_phases").select("id, name, phase_order, phase_type").eq("tournament_id", tournament.id).order("phase_order"),
+    supabase.from("matches").select("id, tournament_id, group_id, phase_id, team_a_id, team_b_id, team_a_score, team_b_score, match_date, location, status, updated_at, team_a:teams!matches_team_a_id_fkey(id, name, logo_url), team_b:teams!matches_team_b_id_fkey(id, name, logo_url)").eq("tournament_id", tournament.id).order("match_date", { ascending: false }),
   ])
 
-  const isAdmin = profile?.role === "admin"
-
-  return <DashboardContent tournaments={tournaments} profile={profile} isAdmin={isAdmin} recentActivity={(recentResult.data || []) as unknown as Parameters<typeof DashboardContent>[0]["recentActivity"]} totals={{ teams: teamsResult.count || 0, incidents: incidentsResult.count || 0, matches: matchesResult.count || 0 }} />
+  return <PublicTournamentLive tournament={tournament} teams={(teamRows || []).flatMap((row) => row.team ? [row.team] : []) as unknown as Parameters<typeof PublicTournamentLive>[0]["teams"]} groups={(groups || []) as Parameters<typeof PublicTournamentLive>[0]["groups"]} phases={(phases || []) as Parameters<typeof PublicTournamentLive>[0]["phases"]} matches={(matches || []) as unknown as Parameters<typeof PublicTournamentLive>[0]["matches"]} />
 }

@@ -15,6 +15,12 @@ const updateSchema = z.object({
   events: z.array(z.object({ playerId: z.string().uuid(), eventType: z.enum(["goal", "exclusion"]) })).max(500),
 })
 
+const liveEventSchema = z.object({
+  playerId: z.string().uuid(),
+  eventType: z.enum(["goal", "exclusion"]),
+  delta: z.union([z.literal(1), z.literal(-1)]),
+})
+
 async function authorize(tournamentId: string, matchId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -76,6 +82,18 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       teamBPlayers: playerData.filter((player) => player.team_id === match.team_b_id),
     },
   })
+}
+
+export async function POST(_request: Request, { params }: { params: Promise<{ id: string; matchId: string }> }) {
+  const { id, matchId } = await params
+  const auth = await authorize(id, matchId)
+  if (auth.error) return auth.error
+  const { data: match } = await auth.admin.from("matches").select("status").eq("id", matchId).eq("tournament_id", id).maybeSingle()
+  if (!match) return NextResponse.json({ error: "Partido no encontrado" }, { status: 404 })
+  if (match.status === "finished") return NextResponse.json({ status: match.status })
+  const { error } = await auth.admin.from("matches").update({ status: "in_progress", updated_at: new Date().toISOString() }).eq("id", matchId).eq("tournament_id", id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+  return NextResponse.json({ status: "in_progress" })
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string; matchId: string }> }) {
@@ -151,6 +169,39 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   await syncPendingGroupStages(id, auth.admin)
   await syncBracketTemplate(id, auth.admin)
   return NextResponse.json({ success: true })
+}
+
+export async function PUT(request: Request, { params }: { params: Promise<{ id: string; matchId: string }> }) {
+  const { id, matchId } = await params
+  const auth = await authorize(id, matchId)
+  if (auth.error) return auth.error
+  const parsed = liveEventSchema.safeParse(await request.json().catch(() => null))
+  if (!parsed.success) return NextResponse.json({ error: "Evento en directo no válido" }, { status: 400 })
+
+  const { playerId, eventType, delta } = parsed.data
+  const { data: match } = await auth.admin.from("matches").select("team_a_id, team_b_id, team_a_score, team_b_score, status").eq("id", matchId).eq("tournament_id", id).single()
+  if (!match) return NextResponse.json({ error: "Partido no encontrado" }, { status: 404 })
+  if (match.status === "finished") return NextResponse.json({ error: "Un partido finalizado debe editarse y guardarse de nuevo" }, { status: 409 })
+
+  const { data: player } = await auth.admin.from("players").select("id, team_id").eq("id", playerId).in("team_id", [match.team_a_id, match.team_b_id]).maybeSingle()
+  if (!player) return NextResponse.json({ error: "El jugador no pertenece a este partido" }, { status: 400 })
+
+  if (delta === 1) {
+    const { error } = await auth.admin.from("match_events").insert({ match_id: matchId, player_id: playerId, event_type: eventType })
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+  } else {
+    const { data: event } = await auth.admin.from("match_events").select("id").eq("match_id", matchId).eq("player_id", playerId).eq("event_type", eventType).order("created_at", { ascending: false }).limit(1).maybeSingle()
+    if (!event) return NextResponse.json({ error: "No existe ese evento para eliminarlo" }, { status: 409 })
+    const { error } = await auth.admin.from("match_events").delete().eq("id", event.id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+  }
+
+  const isTeamA = player.team_id === match.team_a_id
+  const nextTeamAScore = eventType === "goal" && isTeamA ? Math.max(0, (match.team_a_score || 0) + delta) : match.team_a_score || 0
+  const nextTeamBScore = eventType === "goal" && !isTeamA ? Math.max(0, (match.team_b_score || 0) + delta) : match.team_b_score || 0
+  const { error: matchError } = await auth.admin.from("matches").update({ team_a_score: nextTeamAScore, team_b_score: nextTeamBScore, status: "in_progress", updated_at: new Date().toISOString() }).eq("id", matchId).eq("tournament_id", id)
+  if (matchError) return NextResponse.json({ error: matchError.message }, { status: 400 })
+  return NextResponse.json({ teamAScore: nextTeamAScore, teamBScore: nextTeamBScore, status: "in_progress" })
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string; matchId: string }> }) {

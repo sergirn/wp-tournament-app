@@ -41,6 +41,9 @@ export function MatchReportForm({ teams, tournamentId, initialTeamAId = "", init
   const [loading, setLoading] = useState(false)
   const [playersError, setPlayersError] = useState<string | null>(null)
   const playerRequest = useRef({ A: 0, B: 0 })
+  const liveMatchId = useRef<string | null>(null)
+  const liveMatchRequest = useRef<Promise<string> | null>(null)
+  const liveEventQueue = useRef<Promise<void>>(Promise.resolve())
 
   const teamAScore = teamAPlayers.reduce((sum, p) => sum + p.goals, 0)
   const teamBScore = teamBPlayers.reduce((sum, p) => sum + p.goals, 0)
@@ -83,18 +86,60 @@ export function MatchReportForm({ teams, tournamentId, initialTeamAId = "", init
 
   const updatePlayerStat = (team: "A" | "B", playerId: string, stat: "goals" | "exclusions", delta: number) => {
     const setter = team === "A" ? setTeamAPlayers : setTeamBPlayers
+    const currentPlayer = (team === "A" ? teamAPlayers : teamBPlayers).find((player) => player.id === playerId)
+    if (!currentPlayer) return
+    const maximum = stat === "exclusions" ? 3 : Number.MAX_SAFE_INTEGER
+    const nextValue = Math.max(0, Math.min(maximum, currentPlayer[stat] + delta))
+    const appliedDelta = nextValue - currentPlayer[stat]
+    if (appliedDelta === 0) return
     setter((prev) =>
       prev.map((p) => {
         if (p.id === playerId) {
-          if (stat === "exclusions") {
-            const newValue = Math.max(0, Math.min(3, p[stat] + delta))
-            return { ...p, [stat]: newValue }
-          }
-          return { ...p, [stat]: Math.max(0, p[stat] + delta) }
+          return { ...p, [stat]: Math.max(0, Math.min(maximum, p[stat] + appliedDelta)) }
         }
         return p
       }),
     )
+    if (teamAId && teamBId && teamAId !== teamBId) {
+      liveEventQueue.current = liveEventQueue.current.then(() => publishLiveEvent(playerId, stat === "goals" ? "goal" : "exclusion", appliedDelta)).catch((error) => {
+        setPlayersError(error instanceof Error ? error.message : "No se pudo publicar el cambio en directo")
+      })
+    }
+  }
+
+  const ensureLiveMatch = async () => {
+    if (liveMatchId.current) return liveMatchId.current
+    if (!liveMatchRequest.current) {
+      liveMatchRequest.current = fetch(`/api/tournaments/${tournamentId}/match-reports`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId: fixedGroupId || null, teamAId, teamBId }),
+      }).then(async (response) => {
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.error || "No se pudo iniciar el partido en directo")
+        liveMatchId.current = result.matchId
+        return result.matchId as string
+      }).finally(() => { liveMatchRequest.current = null })
+    }
+    return liveMatchRequest.current
+  }
+
+  useEffect(() => {
+    if (!lockTeams || !teamAId || !teamBId || teamAId === teamBId) return
+    void ensureLiveMatch().catch((error) => {
+      setPlayersError(error instanceof Error ? error.message : "No se pudo iniciar el partido en directo")
+    })
+  }, [lockTeams, teamAId, teamBId])
+
+  const publishLiveEvent = async (playerId: string, eventType: "goal" | "exclusion", delta: number) => {
+    const matchId = await ensureLiveMatch()
+    const response = await fetch(`/api/tournaments/${tournamentId}/matches/${matchId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerId, eventType, delta }),
+    })
+    const result = await response.json()
+    if (!response.ok) throw new Error(result.error || "No se pudo publicar el evento")
   }
 
   const handleSave = async () => {
@@ -105,6 +150,7 @@ export function MatchReportForm({ teams, tournamentId, initialTeamAId = "", init
 
     setLoading(true)
     try {
+      await liveEventQueue.current
       if (teamAId === teamBId) throw new Error("Selecciona dos equipos diferentes")
       let groupId = fixedGroupId || null
       if (!groupId && !skipGroupLookup) {
@@ -130,10 +176,18 @@ export function MatchReportForm({ teams, tournamentId, initialTeamAId = "", init
         ]),
       ].map((event) => ({ playerId: event.player_id, eventType: event.event_type }))
 
-      const response = await fetch(`/api/tournaments/${tournamentId}/match-reports`, {
-        method: "POST",
+      const response = await fetch(liveMatchId.current ? `/api/tournaments/${tournamentId}/matches/${liveMatchId.current}` : `/api/tournaments/${tournamentId}/match-reports`, {
+        method: liveMatchId.current ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(liveMatchId.current ? {
+          teamAScore,
+          teamBScore,
+          matchDate: new Date().toISOString(),
+          location: "",
+          comments,
+          status: "finished",
+          events,
+        } : {
           groupId,
           teamAId,
           teamBId,
@@ -152,6 +206,7 @@ export function MatchReportForm({ teams, tournamentId, initialTeamAId = "", init
         setTeamBId("")
       }
       setComments("")
+      liveMatchId.current = null
       setTeamAPlayers([])
       setTeamBPlayers([])
       onSaved?.()

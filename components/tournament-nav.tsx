@@ -104,7 +104,7 @@ export function TournamentNav({
               type="button"
               variant="ghost"
               size="icon"
-              onClick={() => router.push("/")}
+              onClick={() => router.push("/dashboard")}
               className="h-9 w-9 shrink-0"
               aria-label="Volver"
             >

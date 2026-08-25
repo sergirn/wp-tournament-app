@@ -58,6 +58,24 @@ export function MatchActions({ tournamentId, match, reportOnly = false, actionLa
   const [teamBScore, setTeamBScore] = useState(0)
   const endpoint = `/api/tournaments/${tournamentId}/matches/${match.id}`
 
+  const publishLiveDelta = async (playerId: string, eventType: "goal" | "exclusion", delta: number) => {
+    if (status === "finished") return
+    try {
+      const response = await fetch(endpoint, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerId, eventType, delta }),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || "No se pudo publicar el cambio")
+      setStatus("in_progress")
+      setTeamAScore(result.teamAScore)
+      setTeamBScore(result.teamBScore)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo publicar el cambio en directo")
+    }
+  }
+
   const openEditor = async () => {
     setEditOpen(true)
     setLoading(true)
@@ -75,6 +93,12 @@ export function MatchActions({ tournamentId, match, reportOnly = false, actionLa
       setStatus(loaded.status)
       setTeamAScore(loaded.team_a_score)
       setTeamBScore(loaded.team_b_score)
+      if (loaded.status === "scheduled") {
+        const liveResponse = await fetch(endpoint, { method: "POST" })
+        const liveResult = await liveResponse.json()
+        if (!liveResponse.ok) throw new Error(liveResult.error || "No se pudo iniciar el directo")
+        setStatus("in_progress")
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo cargar el acta")
     } finally {
@@ -103,6 +127,7 @@ export function MatchActions({ tournamentId, match, reportOnly = false, actionLa
       const scoreSetter = team === "A" ? setTeamAScore : setTeamBScore
       scoreSetter((score) => Math.max(0, score + appliedDelta))
     }
+    if (status !== "finished") void publishLiveDelta(playerId, stat === "goals" ? "goal" : "exclusion", appliedDelta)
   }
 
   const updateMatch = async () => {
@@ -128,6 +153,7 @@ export function MatchActions({ tournamentId, match, reportOnly = false, actionLa
       })
       const result = await response.json()
       if (!response.ok) throw new Error(result.error || "No se pudo actualizar el acta")
+      setStatus("finished")
       setEditOpen(false)
       router.refresh()
     } catch (caught) {
@@ -213,7 +239,7 @@ export function MatchActions({ tournamentId, match, reportOnly = false, actionLa
               <div className="grid min-h-0 flex-1 overflow-auto rounded-2xl border bg-card shadow-sm md:grid-cols-[minmax(0,1fr)_240px_minmax(0,1fr)] md:overflow-hidden xl:grid-cols-[minmax(0,1fr)_280px_minmax(0,1fr)]">
                 <TeamPanel team="A" teams={[report.team_a]} selectedTeamId={report.team_a_id} onTeamChange={() => {}} players={report.teamAPlayers} onUpdateStat={updatePlayerStat} />
                 <div className="flex flex-col justify-between gap-4 border-y bg-muted/10 p-4 md:border-y-0">
-                  <div className="text-center"><p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Marcador del partido</p><div className="mt-3 rounded-xl bg-background px-2 py-5 text-5xl font-black tabular-nums shadow-sm">{teamAScore} <span className="font-medium text-muted-foreground">—</span> {teamBScore}</div><p className="mt-2 text-[11px] text-muted-foreground">Se actualiza con los goles de los jugadores</p></div>
+                  <div className="text-center"><p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Marcador del partido</p><div className="mt-3 rounded-xl bg-background px-2 py-5 text-5xl font-black tabular-nums shadow-sm">{teamAScore} <span className="font-medium text-muted-foreground">—</span> {teamBScore}</div><p className="mt-2 text-[11px] text-muted-foreground">{status === "in_progress" ? "● Publicando cambios en directo" : status === "scheduled" ? "El primer cambio iniciará el directo" : "Partido finalizado: los cambios se publican al guardar"}</p></div>
                   <div className="space-y-2"><Label htmlFor={`comments-${match.id}`}>Comentarios</Label><Textarea id={`comments-${match.id}`} value={comments} onChange={(event) => setComments(event.target.value)} className="min-h-28" maxLength={2000} /></div>
                   {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
                   <div className="space-y-2"><Button onClick={updateMatch} disabled={loading} className="w-full gap-2"><Save className="h-4 w-4" />{loading ? "Guardando..." : "Guardar acta"}</Button><MatchReportPDF match={{ ...report, team_a_score: teamAScore, team_b_score: teamBScore, comments }} teamAPlayers={report.teamAPlayers} teamBPlayers={report.teamBPlayers} className="h-10 w-full gap-2" /></div>

@@ -183,7 +183,7 @@ export function TournamentCreationFlow({ teams }: { teams: Team[] }) {
         <div className="mb-8 space-y-5">
           <Button
             variant="ghost"
-            onClick={() => router.push("/")}
+            onClick={() => router.push("/dashboard")}
             className="rounded-xl text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />

@@ -15,7 +15,7 @@ export default async function CreateTournamentPage() {
   const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single()
 
   if (profile?.role !== "admin") {
-    redirect("/")
+    redirect("/dashboard")
   }
 
   const { data: teams } = await supabase.from("teams").select("*").order("name")

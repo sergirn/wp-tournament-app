@@ -11,6 +11,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import Image from "next/image"
+import { Eye } from "lucide-react"
 
 export default function LoginPage() { 
   const [email, setEmail] = useState("")
@@ -158,6 +159,9 @@ export default function LoginPage() {
                       disabled={isLoading}
                     >
                       {isLoading ? "Signing in..." : "Sign in"}
+                    </Button>
+                    <Button asChild type="button" variant="outline" className="h-12 w-full rounded-xl">
+                      <Link href="/"><Eye className="h-4 w-4" />Ver resultados públicos</Link>
                     </Button>
                   </form>
 

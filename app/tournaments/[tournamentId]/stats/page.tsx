@@ -45,11 +45,34 @@ export default async function StatsPage({
       )
     `
 
+  const loadAllEvents = async (eventType: "goal" | "exclusion") => {
+    const allEvents: any[] = []
+    const matchIdChunks = Array.from({ length: Math.ceil(matchIds.length / 100) }, (_, index) => matchIds.slice(index * 100, (index + 1) * 100))
+
+    for (const matchIdChunk of matchIdChunks) {
+      let from = 0
+      const pageSize = 500
+      while (true) {
+        const { data, error } = await supabase
+          .from("match_events")
+          .select(eventSelect)
+          .eq("event_type", eventType)
+          .in("match_id", matchIdChunk)
+          .order("id", { ascending: true })
+          .range(from, from + pageSize - 1)
+
+        if (error) throw new Error(`No se pudieron cargar todos los eventos del torneo: ${error.message}`)
+        allEvents.push(...(data || []))
+        if (!data || data.length < pageSize) break
+        from += pageSize
+      }
+    }
+
+    return allEvents
+  }
+
   const [{ data: topScorers }, { data: topExclusions }] = matchIds.length > 0
-    ? await Promise.all([
-      supabase.from("match_events").select(eventSelect).eq("event_type", "goal").in("match_id", matchIds),
-      supabase.from("match_events").select(eventSelect).eq("event_type", "exclusion").in("match_id", matchIds),
-    ])
+    ? (await Promise.all([loadAllEvents("goal"), loadAllEvents("exclusion")])).map((data) => ({ data }))
     : [{ data: [] }, { data: [] }]
 
   const scorerStats =
@@ -72,7 +95,7 @@ export default async function StatsPage({
       return acc
     }, []) || []
 
-  const sortedScorers = scorerStats.sort((a, b) => (b.goals || 0) - (a.goals || 0)).slice(0, 10)
+  const sortedScorers = scorerStats.sort((a, b) => (b.goals || 0) - (a.goals || 0) || a.name.localeCompare(b.name, "es")).slice(0, 10)
 
   const exclusionStats =
     topExclusions?.reduce((acc: PlayerStat[], event: any) => {
